@@ -26,6 +26,7 @@ O arquivo pronto para instalar é [`apk/LeitorECU.apk`](apk/LeitorECU.apk). Ele 
     - **marcha atual**, calculada pela velocidade ÷ rotação. O app aprende sozinho as relações do câmbio: basta rodar uma vez passando por todas as marchas;
     - **cronômetro 0–100** com parciais 0–60 e 0–80, cálculo entre leituras do GPS e histórico com a rotação máxima;
     - **gráfico de aceleração por marcha** (m/s² × rpm, uma curva por marcha; por padrão só conta as acelerações com o pedal acima de 60 %);
+    - **leitura rápida**: com a aba Pista aberta, o app lê só os blocos `21A2` e `21A4` (rotação, corte de injeção, pedal e tempo de injeção) e atualiza os outros a cada 5 leituras. A rotação chega cerca de 2,5 vezes mais rápido;
     - **gravação da sessão** em CSV (`Downloads/LeitorECU/sessao_*.csv`): velocidade do GPS, aceleração, marcha e todos os valores da central.
   - **Diagnóstico**: ler e apagar códigos de falha. Também tem **informações completas da central**: referência, Vdiag, fornecedor, hardware, programa, versão e calibrações, além de tentar ler o VIN (2181), a rede (2182) e a rastreabilidade (2184).
   - **Bytes**: os blocos `21A0` a `21A4` (✓ = já identificado) e a captura guiada, que salva em `Downloads/LeitorECU/`.
@@ -74,6 +75,13 @@ Os índices são do byte de dados, depois do `61 xx`. As referências vêm do ma
 | Velocidade | ? | ? | ❌ falta uma captura andando |
 
 As capturas de exemplo (CSV) estão em `capturas/`. A tensão lida pelo próprio adaptador (`ATRV`) marca cerca de 2,2 V a mais do que a real.
+
+## Consumo (app Android)
+O consumo é **calculado pelo tempo de injeção** lido da central:
+`L/h = (rpm/2 × 4 injetores) × vazão do injetor × (tempo de injeção − tempo morto)`.
+Com o corte de injeção ativo, o consumo vai a zero. O km/L usa a velocidade do GPS (aba Pista).
+A vazão real do injetor do D4D não é publicada, então o app começa com 110 cc/min e 0,8 ms de tempo morto e se corrige pelo **abastecimento**: em **Painel → Consumo**, zere a viagem com o tanque cheio e, ao completar de novo, digite os litros que entraram. O app ajusta o fator automaticamente.
+Medidores disponíveis: consumo (L/h), consumo instantâneo (km/L), média da viagem, combustível gasto e distância.
 
 ## Códigos de falha
 Os dois apps mostram, para cada código OBD (P0xxx/U0xxx), o **código Renault (DF)** e a descrição do quadro de falhas oficial da SIM32 D4 Vdiag 04 (manual 17B). São 50 códigos. Por exemplo, P0627 aparece como "DF008 – circuito de comando do relé da bomba de combustível".

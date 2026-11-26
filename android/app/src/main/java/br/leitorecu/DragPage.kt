@@ -217,9 +217,11 @@ class DragPage(private val act: Activity, private val ecuNow: () -> Map<String, 
         if (!l.hasSpeed()) return
         val t = l.elapsedRealtimeNanos / 1_000_000.0
         val v = l.speed * 3.6
+        Gps.kmh = v; Gps.at = System.currentTimeMillis()      // usado pelo consumo (km/L)
         val ecu = ecuNow()
         val rpm = ecu["rpm"]
-        val pedal = ecu["pedal"]
+        // pista 1 do pedal (21A2, lido a cada ciclo no modo rápido); mesma escala do PR126
+        val pedal = ecu["pedal1"] ?: ecu["pedal"]
 
         val now = SystemClock.elapsedRealtime()
         fixTimes.addLast(now)

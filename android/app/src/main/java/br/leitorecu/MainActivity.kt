@@ -74,6 +74,10 @@ class MainActivity : Activity() {
     private var lids = RenaultMap.LIDS
     private var misses = 0
     private var cycleMs = 0L
+    /** Aba Pista aberta: lê só 21A2 (rotação, corte, pedal pista 1) e 21A4 (injeção); o resto a cada 5 ciclos. */
+    @Volatile private var fastMode = false
+    private var fastCount = 0
+    private val FAST_LIDS = listOf(0xA2, 0xA4)
 
     // Painel configurável
     private lateinit var dash: MutableList<CardCfg>
@@ -111,6 +115,7 @@ class MainActivity : Activity() {
     // =====================================================================
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Fuel.init(this)
         dash = DashConfig.load(this)
         val gp = getSharedPreferences("cfg", 0)
         graphKeys = arrayOf(gp.getString("g1", "rpm"), gp.getString("g2", "lambda"))
@@ -204,6 +209,7 @@ class MainActivity : Activity() {
     private fun showPage(i: Int) {
         pages.forEachIndexed { j, v -> v.visibility = if (i == j) View.VISIBLE else View.GONE }
         tabs.forEachIndexed { j, b -> b.alpha = if (i == j) 1f else 0.55f }
+        fastMode = (i == 2)   // aba Pista
     }
 
     // ---------- Painel ----------
@@ -218,6 +224,7 @@ class MainActivity : Activity() {
         }.apply { isEnabled = false }
         top.addView(btnPause, LinearLayout.LayoutParams(0, -2, 1f))
         top.addView(button("Personalizar") { showCustomize() }, LinearLayout.LayoutParams(0, -2, 1f))
+        top.addView(button("Consumo") { showFuel() }, LinearLayout.LayoutParams(0, -2, 1f))
         col.addView(top)
         rate = text("", 12f, MUTED).apply { setPadding(dp(4), 0, 0, dp(2)) }
         col.addView(rate)
@@ -332,6 +339,47 @@ class MainActivity : Activity() {
             }
             .setNegativeButton("Cancelar", null)
             .show()
+    }
+
+    // ---------- Consumo ----------
+    private fun showFuel() {
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(8)) }
+        val info = text("", 15f)
+        fun refresh() {
+            val avg = Fuel.avgKml()?.let { fmt(it, 1) + " km/L" } ?: "--"
+            info.text = "Viagem atual:\n" +
+                    "  Combustível gasto: ${fmt(Fuel.tripL, 2)} L\n" +
+                    "  Distância (GPS): ${fmt(Fuel.tripKm, 1)} km\n" +
+                    "  Média: $avg\n\n" +
+                    "Fator de calibração: ${fmt(Fuel.factor, 3)}" +
+                    (if (Fuel.factor == 1.0) "  (ainda não calibrado)" else "") +
+                    "\n\nO km/L e a distância precisam do GPS ligado (aba Pista)."
+        }
+        refresh()
+        col.addView(info)
+        val liters = android.widget.EditText(this).apply {
+            hint = "Litros que entraram no abastecimento"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        }
+        col.addView(text("\nCalibrar: zere a viagem com o tanque cheio, rode pelo menos 1 tanque parcial " +
+                "e, ao completar de novo, digite os litros que entraram.", 12f, MUTED))
+        col.addView(liters)
+        col.addView(LinearLayout(this).apply {
+            addView(button("Calibrar") {
+                val v = liters.text.toString().replace(",", ".").toDoubleOrNull()
+                if (v == null || !Fuel.calibrate(v)) {
+                    android.widget.Toast.makeText(this@MainActivity,
+                        "Precisa de pelo menos 1 L calculado na viagem e um valor válido.", android.widget.Toast.LENGTH_LONG).show()
+                } else { liters.setText(""); refresh() }
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(button("Zerar viagem") { Fuel.resetTrip(); refresh() }, LinearLayout.LayoutParams(0, -2, 1f))
+        })
+        col.addView(LinearLayout(this).apply {
+            addView(button("Ligar GPS") { drag.startGps(); refresh() }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(button("Zerar calibração") { Fuel.resetFactor(); refresh() }, LinearLayout.LayoutParams(0, -2, 1f))
+        })
+        AlertDialog.Builder(this).setTitle("Consumo").setView(ScrollView(this).apply { addView(col) })
+            .setPositiveButton("Fechar", null).show()
     }
 
     // ---------- Gráfico ----------
@@ -630,7 +678,10 @@ class MainActivity : Activity() {
         val t0 = System.currentTimeMillis()
         var got = 0
         val snap = HashMap<Int, ByteArray>()
-        for (lid in lids) {
+        // durante a captura guiada lê tudo (o CSV precisa de todos os bytes)
+        val readNow = if (fastMode && phase == null && (fastCount++ % 5 != 0))
+            lids.filter { it in FAST_LIDS }.ifEmpty { lids } else lids
+        for (lid in readNow) {
             if (!monitoring) return
             val d = e.renaultRead(lid) ?: continue
             got++
@@ -655,6 +706,12 @@ class MainActivity : Activity() {
 
     private fun updateUi(b: Map<Int, ByteArray>) {
         val now = System.currentTimeMillis()
+        Fuel.tick(b)   // acumula litros e km da viagem
+        // valores calculados (consumo) mostram "--" quando faltam dados, em vez do último valor
+        for (k in listOf("cons_lh", "cons_kml", "trip_kml")) {
+            val m = Modules.byKey(k) ?: continue
+            if (m.read(b) == null) valueViews[k]?.text = "--"
+        }
         // histórico p/ gráfico: valores conhecidos + escolhidos no Painel
         val keys = (Modules.known.map { it.key } + dash.map { it.key } + graphKeys.filterNotNull()).distinct()
         for (k in keys) {

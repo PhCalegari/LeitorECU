@@ -23,7 +23,14 @@ object Modules {
     /** Valores já identificados (mapa Renault SIM 32 Vdiag 04). */
     val known: List<Module> = RenaultMap.SIGNALS.map { s ->
         Module(s.key, s.name, s.unit, s.dec, s.provisional, false) { b -> s.read(b) }
-    }
+    } + listOf(
+        // consumo (estimado pelo tempo de injeção; fica "provisório" até calibrar no abastecimento)
+        Module("cons_lh", "Consumo", "L/h", 2, true, false) { b -> Fuel.lh(b) },
+        Module("cons_kml", "Consumo instantâneo", "km/L (GPS)", 1, true, false) { b -> Fuel.kml(b) },
+        Module("trip_kml", "Média da viagem", "km/L", 1, true, false) { _ -> Fuel.avgKml() },
+        Module("trip_l", "Combustível gasto", "L (viagem)", 2, true, false) { _ -> Fuel.tripL },
+        Module("trip_km", "Distância", "km (viagem, GPS)", 1, true, false) { _ -> Fuel.tripKm },
+    )
 
     /** Bytes já usados por algum valor identificado. */
     val usedBytes: Set<Pair<Int, Int>> = RenaultMap.SIGNALS.flatMap { s ->
@@ -50,7 +57,9 @@ object DashConfig {
     private const val PREF = "dash_v1"
 
     fun default(): MutableList<CardCfg> =
-        Modules.known.filter { it.key !in setOf("pedal1", "pedal2", "st_inj", "st_lenta", "st_pe", "pedal_aprend") }
+        Modules.known.filter {
+            it.key !in setOf("pedal1", "pedal2", "st_inj", "st_lenta", "st_pe", "pedal_aprend", "trip_l", "trip_km")
+        }
             .map { CardCfg(it.key, it.key == "rpm") }.toMutableList()
 
     fun load(ctx: Context): MutableList<CardCfg> {
