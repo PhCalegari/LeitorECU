@@ -53,11 +53,17 @@ Os índices são do byte de dados, depois do `61 xx`. As referências vêm do ma
 | Avanço de ignição | `21A4` 15 | × 0,375 − 23,625 ° | ✅ −23,6° desligado (manual: −24°), 0–2° em marcha lenta |
 | Tempo de injeção | `21A4` 13–14 | × 4 µs | ✅ ~4,0 ms em marcha lenta (manual: 3,5–4) |
 | Sonda lambda montante | `21A2` 11 | × 9,76 mV | ✅ oscila 0,1–0,9 V em malha fechada |
-| Pedal / borboleta | `21A3` 15 | 36 = 0 %, 229 = 100 % | ✅ |
+| Pedal do acelerador (PR126) | `21A3` 15 | × 100/256 % | ✅ 14 % com o pé fora (manual: 14 %) |
+| Pedal pistas 1 e 2 (PR206/PR207) | `21A2` 20 e 21 | × 100/256 % | ✅ 14 % em repouso (manual: 14 %) |
 | Bateria | `21A2` 15 | × 0,032 + 8 V | ✅ 13,7 V ligado, 12,6 V desligado |
-| Correção da mistura | `21A2` 16 | (x − 128) / 128 × 100 % | 🟡 provável (fica em 128 no corte de combustível) |
-| Temperatura da água | `21A2` 13 | × 0,625 − 40 °C | 🟡 provisória. Confirmar: a ventoinha liga a 99 °C |
-| Temperatura do ar | `21A2` 14 | × 0,625 − 40 °C | 🟡 provisória. Confirmar com o motor frio |
+| Correção da riqueza (PR035) | `21A2` 16 | valor bruto, 128 = neutro | ✅ o manual mostra o valor bruto (100–130); fica em 128 no corte de combustível |
+| Temperatura da água | `21A2` 13 | × 0,625 − 40 °C | 🟡 a escala confere com o manual (sensor com defeito: −40 / 120 °C = byte 0 / 255). Falta confirmar o byte: a ventoinha liga a 99 °C |
+| Temperatura do ar | `21A2` 14 | × 0,625 − 40 °C | 🟡 ~46 °C (o sensor fica no coletor quente). Confirmar com o motor frio: tem que ser igual à da água |
+| Borboleta medida (PR017) | `21A3` 18 | × 100/256 % | 🟡 12,1–12,9 % em marcha lenta (manual: 12 %); fica em 0 com o motor parado |
+| Injeção ativa (corte na desaceleração) | `21A2` 2, bit 7 | 1 = injetando, 0 = corte | 🟡 vai a 0 ao soltar o pedal acima de ~1.000 rpm |
+| Regulação de marcha lenta ativa | `21A2` 2, bit 6 | 1 = ativa | 🟡 1 em marcha lenta, 0 ao acelerar |
+| Pé levantado | `21A0` 0, bit 6 | 1 = pedal solto | 🟡 vai a 0 ao pisar, mesmo com o motor desligado |
+| Cópias da rotação | `21A3` 9–10 e `21A4` 10–11 | valor direto (rpm) | ✅ mesmo valor de `21A2` 7–8 |
 | Velocidade | ? | ? | ❌ falta uma captura andando |
 
 As capturas de exemplo (CSV) estão em `capturas/`. A tensão lida pelo próprio adaptador (`ATRV`) marca cerca de 2,2 V a mais do que a real.

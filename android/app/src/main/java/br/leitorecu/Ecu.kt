@@ -168,13 +168,28 @@ object RenaultMap {
         },
         Signal("agua", "Temp. motor", "°C", 0xA2, 13, 1, 0, true) { it * 0.625 - 40 },
         Signal("ar", "Temp. ar", "°C", 0xA2, 14, 1, 0, true) { it * 0.625 - 40 },
-        Signal("pedal", "Pedal/borboleta", "%", 0xA3, 15, 1, 0, false) {
-            ((it - 36) * 100.0 / 193).coerceIn(0.0, 100.0)
-        },
+        // PR126 – manual Renault: 14 % com o pé levantado (byte 36 × 100/256 = 14 %)
+        Signal("pedal", "Pedal acelerador", "%", 0xA3, 15, 1, 0, false) { it * 100.0 / 256 },
+        // PR206/PR207 – pistas 1 e 2 do pedal (14 % em repouso, como no manual)
+        Signal("pedal1", "Pedal pista 1", "%", 0xA2, 20, 1, 0, false) { it * 100.0 / 256 },
+        Signal("pedal2", "Pedal pista 2", "%", 0xA2, 21, 1, 0, false) { it * 100.0 / 256 },
         Signal("avanco", "Avanço ignição", "°", 0xA4, 15, 1, 1, false) { it * 0.375 - 23.625 },
         Signal("inj", "Tempo injeção", "ms", 0xA4, 13, 2, 2, false) { it * 0.004 },
         Signal("lambda", "Sonda lambda", "V", 0xA2, 11, 1, 2, false) { it * 0.00976 },
-        Signal("corr", "Correção mistura", "%", 0xA2, 16, 1, 1, true) { (it - 128) * 100.0 / 128 },
+        // PR017 borboleta medida: 12,1–12,9 % em marcha lenta (manual: 12 %). 0 com motor parado.
+        Signal("borb", "Borboleta medida", "%", 0xA3, 18, 1, 1, true) { it * 100.0 / 256 },
+        // Estados (bits) – deduzidos das capturas, coerentes amostra a amostra
+        Signal("st_inj", "Injeção ativa", "1 = sim / 0 = corte", 0xA2, 2, 1, 0, true) {
+            if (it and 0x80 != 0) 1.0 else 0.0
+        },
+        Signal("st_lenta", "Regulação marcha lenta", "1 = ativa", 0xA2, 2, 1, 0, true) {
+            if (it and 0x40 != 0) 1.0 else 0.0
+        },
+        Signal("st_pe", "Pé levantado", "1 = sim", 0xA0, 0, 1, 0, true) {
+            if (it and 0x40 != 0) 1.0 else 0.0
+        },
+        // PR035 "Valor de corrección de riqueza" – o manual mostra o valor bruto (128 = neutro)
+        Signal("corr", "Correção riqueza", "128 = neutro", 0xA2, 16, 1, 0, false) { it.toDouble() },
         Signal("bat", "Bateria", "V", 0xA2, 15, 1, 1, false) { it * 0.032 + 8 },
     )
 }

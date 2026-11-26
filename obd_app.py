@@ -83,8 +83,8 @@ RENAULT_MAP = {
     # PROVISÓRIO (captura 25/11 20:27): sobe devagar 175->185 com o motor esquentando.
     # Escala típica Renault x*0.625-40 -> 70..76 °C. Confirmar quando a ventoinha ligar (~95-100 °C).
     0x05: (0xA2, 13, 1, lambda v: v * 0.625 - 40),
-    # Teste com motor desligado (25/11 20:30): 36 = pé fora, 229 = pedal no fundo.
-    0x11: (0xA3, 15, 1, lambda v: max(0.0, min(100.0, (v - 36) * 100 / 193))),
+    # Pedal do acelerador (PR126): x*100/256 %. Manual Renault: 14 % com o pé levantado (byte 36).
+    0x11: (0xA3, 15, 1, lambda v: v * 100 / 256),
     # Correção da mistura (malha fechada): 0xA2 byte 16, 128 = neutro. Fica cravado em 128
     # na desaceleração/corte e com o motor desligado; ~+8..+13% em marcha lenta.
     # (Antes eu tinha interpretado como bateria /10 — estava ERRADO.)

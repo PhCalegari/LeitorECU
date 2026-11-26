@@ -215,20 +215,23 @@ class DemoLink : Link() {
             c == "21A0" -> {
                 val b = IntArray(24)
                 val map = ((350 + 60 * rev - 103) / 0.0578125).toInt()
+                b[0] = if (rev < 0.05) 0xF0 else 0x80
                 b[12] = map shr 8; b[13] = map; hex(b).let { "61A0$it" }
             }
             c == "21A2" -> {
                 val b = IntArray(22)
                 b[7] = rpm shr 8; b[8] = rpm
+                b[2] = if (rev < 0.05) 0xD6 else 0x96
                 b[11] = if ((t * 2).toInt() % 2 == 0) 15 else 80          // lambda oscilando
                 b[13] = ((minOf(90.0, 70 + t / 6) + 40) / 0.625).toInt()  // água
                 b[14] = ((46 + 40) / 0.625).toInt()                          // ar
                 b[15] = ((13.7 - 8) / 0.032).toInt()                         // bateria
                 b[16] = 138
+                b[20] = (36 + 193 * rev * 0.4).toInt(); b[21] = b[20] + 2           // pistas do pedal
                 "61A2" + hex(b)
             }
             c == "21A3" -> {
-                val b = IntArray(24); b[15] = (36 + 193 * rev * 0.4).toInt(); "61A3" + hex(b)
+                val b = IntArray(24); b[15] = (36 + 193 * rev * 0.4).toInt(); b[18] = (32 + 10 * rev).toInt(); "61A3" + hex(b)
             }
             c == "21A4" -> {
                 val b = IntArray(24)

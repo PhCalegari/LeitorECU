@@ -50,7 +50,8 @@ object DashConfig {
     private const val PREF = "dash_v1"
 
     fun default(): MutableList<CardCfg> =
-        Modules.known.map { CardCfg(it.key, it.key == "rpm") }.toMutableList()
+        Modules.known.filter { it.key !in setOf("pedal1", "pedal2", "st_inj", "st_lenta", "st_pe") }
+            .map { CardCfg(it.key, it.key == "rpm") }.toMutableList()
 
     fun load(ctx: Context): MutableList<CardCfg> {
         val s = ctx.getSharedPreferences("cfg", 0).getString(PREF, null) ?: return default()
