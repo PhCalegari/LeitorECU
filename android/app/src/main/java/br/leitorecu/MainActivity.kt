@@ -116,6 +116,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Fuel.init(this)
+        SpeedMap.load(getSharedPreferences("cfg", 0))
         dash = DashConfig.load(this)
         val gp = getSharedPreferences("cfg", 0)
         graphKeys = arrayOf(gp.getString("g1", "rpm"), gp.getString("g2", "lambda"))
@@ -199,7 +200,7 @@ class MainActivity : Activity() {
 
         val content = FrameLayout(this)
         col.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
-        drag = DragPage(this) { latest }
+        drag = DragPage(this, { latest }, { synchronized(blocks) { HashMap(blocks) } })
         pages = listOf(buildDashboard(), buildGraph(), drag.view, buildDiag(), buildRaw())
         pages.forEach { content.addView(it) }
         showPage(0)
@@ -679,8 +680,9 @@ class MainActivity : Activity() {
         var got = 0
         val snap = HashMap<Int, ByteArray>()
         // durante a captura guiada lê tudo (o CSV precisa de todos os bytes)
-        val readNow = if (fastMode && phase == null && (fastCount++ % 5 != 0))
-            lids.filter { it in FAST_LIDS }.ifEmpty { lids } else lids
+        // enquanto a velocidade não foi descoberta, lê tudo (a busca precisa de todos os bytes atualizados)
+        val readNow = if (fastMode && SpeedMap.known && phase == null && (fastCount++ % 5 != 0))
+            lids.filter { it in FAST_LIDS || it == SpeedMap.lid }.ifEmpty { lids } else lids
         for (lid in readNow) {
             if (!monitoring) return
             val d = e.renaultRead(lid) ?: continue

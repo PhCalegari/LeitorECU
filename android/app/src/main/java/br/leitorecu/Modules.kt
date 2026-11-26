@@ -24,6 +24,8 @@ object Modules {
     val known: List<Module> = RenaultMap.SIGNALS.map { s ->
         Module(s.key, s.name, s.unit, s.dec, s.provisional, false) { b -> s.read(b) }
     } + listOf(
+        // velocidade lida da central – posição descoberta automaticamente comparando com o GPS (aba Pista)
+        Module("vel_ecu", "Velocidade (central)", "km/h", 0, true, false) { b -> SpeedMap.read(b) },
         // consumo (estimado pelo tempo de injeção; fica "provisório" até calibrar no abastecimento)
         Module("cons_lh", "Consumo", "L/h", 2, true, false) { b -> Fuel.lh(b) },
         Module("cons_kml", "Consumo instantâneo", "km/L (GPS)", 1, true, false) { b -> Fuel.kml(b) },
@@ -58,7 +60,8 @@ object DashConfig {
 
     fun default(): MutableList<CardCfg> =
         Modules.known.filter {
-            it.key !in setOf("pedal1", "pedal2", "st_inj", "st_lenta", "st_pe", "pedal_aprend", "trip_l", "trip_km")
+            it.key !in setOf("pedal1", "pedal2", "st_inj", "st_lenta", "st_pe", "pedal_aprend", "trip_l", "trip_km",
+                "lambda2", "knock")
         }
             .map { CardCfg(it.key, it.key == "rpm") }.toMutableList()
 

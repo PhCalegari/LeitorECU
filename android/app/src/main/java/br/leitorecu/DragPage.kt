@@ -42,7 +42,15 @@ import kotlin.math.min
  * cronômetro 0–100, gráfico de aceleração por marcha e gravação da sessão em CSV.
  */
 @SuppressLint("MissingPermission", "SetTextI18n")
-class DragPage(private val act: Activity, private val ecuNow: () -> Map<String, Double>) : LocationListener {
+class DragPage(
+    private val act: Activity,
+    private val ecuNow: () -> Map<String, Double>,
+    private val blocksNow: () -> Map<Int, ByteArray>,
+) : LocationListener {
+
+    // descoberta automática da velocidade dentro da ECU
+    private val finder = SpeedFinder()
+    private lateinit var speedFindTv: TextView
 
     private enum class St { OFF, WAIT_STOP, ARMED, RUNNING, DONE }
 
@@ -141,6 +149,11 @@ class DragPage(private val act: Activity, private val ecuNow: () -> Map<String, 
         col.addView(row(sp, gr))
         gearInfo = tv("", 12f, muted)
         col.addView(gearInfo)
+        speedFindTv = tv("", 12f, Color.parseColor("#FFB300"))
+        col.addView(speedFindTv)
+        col.addView(row(btn("Procurar velocidade de novo") {
+            SpeedMap.clear(prefsCfg); finder.reset(); showSpeedFind()
+        }))
 
         // 0–100
         col.addView(tv("Cronômetro 0–100", 14f, muted).apply { setPadding(0, 16, 0, 0) })
@@ -176,7 +189,32 @@ class DragPage(private val act: Activity, private val ecuNow: () -> Map<String, 
                     "A precisão depende do GPS (mais leituras/s = melhor).",
             12f, muted).apply { setPadding(0, 20, 0, 0); gravity = Gravity.START })
         view = ScrollView(act).apply { addView(col) }
-        showHistory(); showGearInfo(); updateFilterBtn()
+        showHistory(); showGearInfo(); updateFilterBtn(); showSpeedFind()
+    }
+
+    private val prefsCfg get() = act.getSharedPreferences("cfg", 0)
+
+    private fun showSpeedFind() {
+        speedFindTv.text = if (SpeedMap.known) "Velocidade da central: ${SpeedMap.describe()} ✓"
+        else finder.progress()
+    }
+
+    /** Compara a velocidade do GPS com todos os bytes da ECU até achar o byte da velocidade. */
+    private fun feedFinder(v: Double, accuracy: Float) {
+        if (SpeedMap.known || accuracy > 20f) return
+        val b = blocksNow()
+        if (b.isEmpty()) return
+        finder.add(v, b)
+        if (finder.samples % 5 == 0) {
+            finder.best()?.let { r ->
+                SpeedMap.lid = r.lid; SpeedMap.start = r.start; SpeedMap.len = r.len
+                SpeedMap.scale = r.scale; SpeedMap.offset = r.offset
+                SpeedMap.save(prefsCfg)
+                beep(true)
+                statusTv.text = "Velocidade encontrada na central!"
+            }
+            showSpeedFind()
+        }
     }
 
     private fun updateFilterBtn() {
@@ -236,7 +274,9 @@ class DragPage(private val act: Activity, private val ecuNow: () -> Map<String, 
             accel = if (abs(accel) < 1e-9) a else accel * 0.4 + a * 0.6
         }
 
-        updateGear(t, v, rpm)
+        feedFinder(v, l.accuracy)
+        // marcha: usa a velocidade da central quando ela já foi descoberta (mais rápida que o GPS)
+        updateGear(t, ecu["vel_ecu"] ?: v, rpm)
         if (gearNow > 0 && rpm != null && v > 5 && accel > 0.05 && (!pedalFilter || (pedal ?: 0.0) >= 60.0)) {
             curve.add(gearNow, rpm, accel)
             graph.invalidate()

@@ -27,6 +27,7 @@ O arquivo pronto para instalar é [`apk/LeitorECU.apk`](apk/LeitorECU.apk). Ele 
     - **cronômetro 0–100** com parciais 0–60 e 0–80, cálculo entre leituras do GPS e histórico com a rotação máxima;
     - **gráfico de aceleração por marcha** (m/s² × rpm, uma curva por marcha; por padrão só conta as acelerações com o pedal acima de 60 %);
     - **leitura rápida**: com a aba Pista aberta, o app lê só os blocos `21A2` e `21A4` (rotação, corte de injeção, pedal e tempo de injeção) e atualiza os outros a cada 5 leituras. A rotação chega cerca de 2,5 vezes mais rápido;
+    - **descoberta automática da velocidade na central**: compara cada byte com a velocidade do GPS enquanto você dirige. Ao achar o byte, passa a usar a velocidade da central na marcha e no consumo;
     - **gravação da sessão** em CSV (`Downloads/LeitorECU/sessao_*.csv`): velocidade do GPS, aceleração, marcha e todos os valores da central.
   - **Diagnóstico**: ler e apagar códigos de falha. Também tem **informações completas da central**: referência, Vdiag, fornecedor, hardware, programa, versão e calibrações, além de tentar ler o VIN (2181), a rede (2182) e a rastreabilidade (2184).
   - **Bytes**: os blocos `21A0` a `21A4` (✓ = já identificado) e a captura guiada, que salva em `Downloads/LeitorECU/`.
@@ -72,7 +73,9 @@ Os índices são do byte de dados, depois do `61 xx`. As referências vêm do ma
 | Marcha lenta desejada (PR041) | `21A2` 17–18 | valor direto (rpm) | ✅ 752: exatamente o valor do manual ("PR041 = 752 r.p.m.") |
 | Pedal solto aprendido (PR008) | `21A3` 16 | × 100/256 % | ✅ 14,1 % (manual: 14 %) |
 | Cópias da rotação | `21A3` 9–10 e `21A4` 10–11 | valor direto (rpm) | ✅ mesmo valor de `21A2` 7–8 |
-| Velocidade | ? | ? | ❌ falta uma captura andando |
+| Sonda lambda traseira (PR010) | `21A2` 12 | × 9,76 mV | 🟡 488 mV desligado e 462 mV em marcha lenta (manual: ~500 / 400 mV) |
+| Sinal de detonação (PR209) | `21A4` 16 | bruto | 🟡 0 com o motor desligado; sobe com a rotação |
+| Velocidade (PR018) | descoberta automática | — | 🔍 o app Android acha o byte sozinho comparando com o GPS (aba Pista) |
 
 As capturas de exemplo (CSV) estão em `capturas/`. A tensão lida pelo próprio adaptador (`ATRV`) marca cerca de 2,2 V a mais do que a real.
 

@@ -56,7 +56,7 @@ object Fuel {
 
     /** km/L instantâneo (precisa do GPS ligado e o carro andando). */
     fun kml(b: Map<Int, ByteArray>): Double? {
-        val v = Gps.speed() ?: return null
+        val v = Gps.speed() ?: SpeedMap.read(b) ?: return null
         val l = lh(b) ?: return null
         if (v < 5) return null
         if (l < 0.02) return 99.9                            // corte de injeção: consumo ~zero
@@ -71,7 +71,7 @@ object Fuel {
         val dtH = if (lastTick == 0L) 0.0 else ((now - lastTick) / 3_600_000.0).coerceAtMost(10.0 / 3600)
         lastTick = now
         lh(b)?.let { tripL += it * dtH }
-        Gps.speed()?.let { tripKm += it * dtH }
+        (Gps.speed() ?: SpeedMap.read(b))?.let { tripKm += it * dtH }
         if (now - lastSave > 10_000) save()
     }
 

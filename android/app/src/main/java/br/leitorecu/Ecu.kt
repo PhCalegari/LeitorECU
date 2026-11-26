@@ -207,7 +207,13 @@ object RenaultMap {
         Signal("rpm_alvo", "Marcha lenta desejada", "rpm", 0xA2, 17, 2, 0, false) { it.toDouble() },
         // PR008 posição aprendida do pedal solto: manual 14 % – medido 36 × 100/256 = 14,1 %
         Signal("pedal_aprend", "Pedal solto (aprendido)", "%", 0xA3, 16, 1, 1, false) { it * 100.0 / 256 },
-        // PR017 borboleta medida: 12,1–12,9 % em marcha lenta (manual: 12 %). 0 com motor parado.
+        // PR010 sonda lambda posterior (provável): vizinha da anterior; 488 mV desligado / 462 mV em lenta
+        // (manual: ~500 mV / 400 mV). Sem sonda traseira instalada, mostra a tensão de repouso da entrada.
+        Signal("lambda2", "Sonda lambda traseira", "V", 0xA2, 12, 1, 2, true) { it * 0.00976 },
+        // PR209 sinal de detonação (provável, valor bruto): 0 com motor parado, 72–111 em lenta, sobe com a rotação
+        Signal("knock", "Sinal de detonação", "bruto", 0xA4, 16, 1, 0, true) { it.toDouble() },
+        // Borboleta (PR017?) – o manual dá 13 % com motor parado e este byte dá 0: pode ser o COMANDO da borboleta
+        // motorizada, e não a posição medida. Em lenta bate (12 %). 12,1–12,9 % em marcha lenta (manual: 12 %). 0 com motor parado.
         Signal("borb", "Borboleta medida", "%", 0xA3, 18, 1, 1, true) { it * 100.0 / 256 },
         // Estados (bits) – deduzidos das capturas, coerentes amostra a amostra
         Signal("st_inj", "Injeção ativa", "1 = sim / 0 = corte", 0xA2, 2, 1, 0, true) {
