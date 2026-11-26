@@ -19,7 +19,11 @@ Foi feito e testado num **Renault Clio II 1.0 16V Hi-Power 2005 (Brasil)**, moto
 ## App Android (APK)
 O arquivo pronto para instalar é [`apk/LeitorECU.apk`](apk/LeitorECU.apk). Ele roda no Android 6 ou mais novo e conecta em adaptadores ELM327 **Bluetooth LE**.
 - Para instalar, copie o arquivo para o celular, abra e permita "instalar apps desta fonte". O Play Protect pode avisar que o app é desconhecido, porque foi assinado com a chave de teste.
-- Tem três telas. **Painel**: os mesmos valores da tabela abaixo. **Diagnóstico**: ler e apagar códigos de falha e ver a identificação da central. **Bytes**: os blocos `21A0` a `21A4` e a captura guiada, que salva em `Downloads/LeitorECU/`.
+- Tem quatro telas:
+  - **Painel** configurável: em **Personalizar**, você escolhe os medidores, a ordem (▲▼) e quais ficam **grandes**. Além dos valores identificados, dá para adicionar **bytes ainda sem nome** que estejam variando (mostrados em valor bruto).
+  - **Gráfico** ao vivo de até dois valores, cada um com sua escala, nas janelas de 30, 60 ou 120 s.
+  - **Diagnóstico**: ler e apagar códigos de falha. Também tem **informações completas da central**: referência, Vdiag, fornecedor, hardware, programa, versão e calibrações, além de tentar ler o VIN (2181), a rede (2182) e a rastreabilidade (2184).
+  - **Bytes**: os blocos `21A0` a `21A4` (✓ = já identificado) e a captura guiada, que salva em `Downloads/LeitorECU/`.
 - O botão **Demo** simula a central e serve para ver as telas sem o carro.
 - O código-fonte (Kotlin, sem dependências externas) está em [`android/`](android/). Para compilar, use JDK 17 e Android SDK 34, criando `android/local.properties` com `sdk.dir=...`, e rode `gradlew assembleDebug`.
 

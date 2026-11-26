@@ -30,14 +30,19 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.TextView
 import java.io.File
 import java.text.SimpleDateFormat
+import java.util.ArrayDeque
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.LinkedBlockingQueue
@@ -49,9 +54,10 @@ class MainActivity : Activity() {
     // ---------- cores ----------
     private val BG = Color.parseColor("#121417")
     private val CARD = Color.parseColor("#1E2228")
-    private val ACCENT = Color.parseColor("#3FA9F5")
     private val WARN = Color.parseColor("#FFB300")
     private val MUTED = Color.parseColor("#9AA4AE")
+    private val C1 = Color.parseColor("#3FA9F5")
+    private val C2 = Color.parseColor("#FF8A3D")
 
     private val ui = Handler(Looper.getMainLooper())
     private val br = Locale("pt", "BR")
@@ -69,6 +75,11 @@ class MainActivity : Activity() {
     private var misses = 0
     private var cycleMs = 0L
 
+    // Painel configurável
+    private lateinit var dash: MutableList<CardCfg>
+    private val history = HashMap<String, ArrayDeque<Pair<Long, Double>>>()
+    private var graphKeys = arrayOf<String?>(null, null)
+
     // captura guiada
     @Volatile private var phase: String? = null
     private val samples = ArrayList<Triple<Long, String, Map<Int, ByteArray>>>()
@@ -81,8 +92,12 @@ class MainActivity : Activity() {
     private lateinit var pages: List<View>
     private lateinit var tabs: List<Button>
     private val valueViews = HashMap<String, TextView>()
+    private lateinit var grid: GridLayout
     private lateinit var rate: TextView
     private lateinit var btnPause: Button
+    private lateinit var graph: GraphView
+    private lateinit var spin1: Spinner
+    private lateinit var spin2: Spinner
     private lateinit var diagOut: TextView
     private lateinit var identView: TextView
     private lateinit var rawView: TextView
@@ -94,6 +109,9 @@ class MainActivity : Activity() {
     // =====================================================================
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        dash = DashConfig.load(this)
+        val gp = getSharedPreferences("cfg", 0)
+        graphKeys = arrayOf(gp.getString("g1", "rpm"), gp.getString("g2", "lambda"))
         buildUi()
         worker.isDaemon = true
         worker.start()
@@ -123,6 +141,8 @@ class MainActivity : Activity() {
 
     private fun setStatus(s: String) = ui.post { status.text = s }
 
+    private fun fmt(v: Double, dec: Int) = String.format(br, "%.${dec}f", v)
+
     private fun buildUi() {
         root = FrameLayout(this).apply { setBackgroundColor(BG) }
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(12), dp(12), dp(8)) }
@@ -140,14 +160,14 @@ class MainActivity : Activity() {
         col.addView(row)
 
         val tabRow = LinearLayout(this).apply { setPadding(0, dp(6), 0, dp(6)) }
-        tabs = listOf("Painel", "Diagnóstico", "Bytes").mapIndexed { i, s ->
+        tabs = listOf("Painel", "Gráfico", "Diagnóstico", "Bytes").mapIndexed { i, s ->
             button(s) { showPage(i) }.also { tabRow.addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
         }
         col.addView(tabRow)
 
         val content = FrameLayout(this)
         col.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
-        pages = listOf(buildDashboard(), buildDiag(), buildRaw())
+        pages = listOf(buildDashboard(), buildGraph(), buildDiag(), buildRaw())
         pages.forEach { content.addView(it) }
         showPage(0)
         setContentView(root)
@@ -158,42 +178,181 @@ class MainActivity : Activity() {
         tabs.forEachIndexed { j, b -> b.alpha = if (i == j) 1f else 0.55f }
     }
 
+    // ---------- Painel ----------
     private fun buildDashboard(): View {
         val sv = ScrollView(this)
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         sv.addView(col)
         val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        btnPause = button("Pausar leitura") {
+        btnPause = button("Pausar") {
             monitoring = !monitoring
-            btnPause.text = if (monitoring) "Pausar leitura" else "Retomar leitura"
+            btnPause.text = if (monitoring) "Pausar" else "Retomar"
         }.apply { isEnabled = false }
+        top.addView(btnPause)
+        top.addView(button("Personalizar") { showCustomize() })
         rate = text("", 12f, MUTED).apply { setPadding(dp(10), 0, 0, 0) }
-        top.addView(btnPause); top.addView(rate)
+        top.addView(rate)
         col.addView(top)
 
-        val grid = GridLayout(this).apply { columnCount = 2 }
-        for (s in RenaultMap.SIGNALS) {
+        grid = GridLayout(this).apply { columnCount = 2 }
+        col.addView(grid)
+        col.addView(text("“provisório” = ainda precisa de confirmação. “bruto” = byte sem significado conhecido (0-255).",
+            12f, MUTED).apply { setPadding(dp(4), dp(8), dp(4), dp(8)) })
+        rebuildDashboard()
+        return sv
+    }
+
+    private fun rebuildDashboard() {
+        grid.removeAllViews()
+        valueViews.clear()
+        for (cfg in dash) {
+            val m = Modules.byKey(cfg.key) ?: continue
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 background = rounded(CARD)
                 setPadding(dp(12), dp(10), dp(12), dp(10))
             }
-            card.addView(text(s.name, 13f, MUTED))
-            val v = text("--", 30f, Color.WHITE, true)
+            card.addView(text(m.name, if (cfg.big) 15f else 13f, MUTED))
+            val v = text("--", if (cfg.big) 52f else 30f, Color.WHITE, true)
             card.addView(v)
-            card.addView(text(s.unit + if (s.provisional) "  • provisório" else "", 12f,
-                if (s.provisional) WARN else MUTED))
-            valueViews[s.key] = v
-            val lp = GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED, 1f), GridLayout.spec(GridLayout.UNDEFINED, 1f))
+            val tag = when {
+                m.raw -> "  • não identificado"
+                m.provisional -> "  • provisório"
+                else -> ""
+            }
+            card.addView(text(m.unit + tag, 12f, if (m.provisional) WARN else MUTED))
+            valueViews[cfg.key] = v
+            val span = if (cfg.big) 2 else 1
+            val lp = GridLayout.LayoutParams(
+                GridLayout.spec(GridLayout.UNDEFINED, 1f),
+                GridLayout.spec(GridLayout.UNDEFINED, span, 1f)
+            )
             lp.width = 0; lp.setMargins(dp(4), dp(4), dp(4), dp(4))
             grid.addView(card, lp)
         }
-        col.addView(grid)
-        col.addView(text("Velocidade ainda não identificada. Valores “provisório” precisam de confirmação.", 12f, MUTED)
-            .apply { setPadding(dp(4), dp(8), dp(4), dp(8)) })
-        return sv
+        if (dash.isEmpty()) grid.addView(text("Nenhum medidor. Toque em Personalizar.", 14f, MUTED))
     }
 
+    /** Lista para escolher medidores: marcar, ordenar (▲▼) e deixar grande. */
+    private fun showCustomize() {
+        // candidatos: conhecidos + bytes que variaram (ou já escolhidos) e ainda sem nome
+        val varied = synchronized(stats) {
+            stats.filter { (k, s) -> s[0] != s[1] && k !in Modules.usedBytes }.keys
+                .sortedWith(compareBy({ it.first }, { it.second }))
+        }
+        val order = dash.map { it.key }.toMutableList()
+        val all = (order + Modules.known.map { it.key } + varied.map { Modules.raw(it.first, it.second).key }).distinct()
+            .toMutableList()
+        val checked = all.associateWith { it in order }.toMutableMap()
+        val big = all.associateWith { k -> dash.firstOrNull { it.key == k }?.big ?: false }.toMutableMap()
+        // escolhidos primeiro, na ordem atual
+        all.sortBy { k -> order.indexOf(k).let { if (it < 0) 1000 + all.indexOf(k) else it } }
+
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), dp(8), dp(8), dp(8)) }
+        val sv = ScrollView(this).apply { addView(list) }
+        val snap = synchronized(blocks) { HashMap(blocks) }
+
+        fun render() {
+            list.removeAllViews()
+            list.addView(text("Marque o que aparece no Painel. ▲▼ mudam a ordem. “Grande” ocupa a linha toda." +
+                    if (varied.isEmpty()) "\n(Conecte e deixe ler um pouco para listar também os bytes sem nome que variam.)" else "",
+                12f, MUTED))
+            all.forEachIndexed { i, k ->
+                val m = Modules.byKey(k) ?: return@forEachIndexed
+                val cur = m.read(snap)?.let { " = " + fmt(it, m.dec) } ?: ""
+                val r = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+                val cb = CheckBox(this).apply {
+                    text = m.name + cur + if (m.raw) " (bruto)" else ""
+                    isChecked = checked[k] == true
+                    setOnCheckedChangeListener { _, b -> checked[k] = b }
+                }
+                r.addView(cb, LinearLayout.LayoutParams(0, -2, 1f))
+                val bg = CheckBox(this).apply {
+                    text = "Grande"; isChecked = big[k] == true
+                    setOnCheckedChangeListener { _, b -> big[k] = b }
+                }
+                r.addView(bg)
+                r.addView(button("▲") { if (i > 0) { all.add(i - 1, all.removeAt(i)); render() } }, LinearLayout.LayoutParams(dp(48), -2))
+                r.addView(button("▼") { if (i < all.size - 1) { all.add(i + 1, all.removeAt(i)); render() } }, LinearLayout.LayoutParams(dp(48), -2))
+                list.addView(r)
+            }
+        }
+        render()
+
+        AlertDialog.Builder(this)
+            .setTitle("Personalizar Painel")
+            .setView(sv)
+            .setPositiveButton("Salvar") { _, _ ->
+                dash = all.filter { checked[it] == true }.map { CardCfg(it, big[it] == true) }.toMutableList()
+                DashConfig.save(this, dash)
+                rebuildDashboard()
+                refreshGraphChoices()
+            }
+            .setNeutralButton("Padrão") { _, _ ->
+                dash = DashConfig.default(); DashConfig.save(this, dash); rebuildDashboard(); refreshGraphChoices()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    // ---------- Gráfico ----------
+    private fun graphCandidates(): List<String> =
+        (Modules.known.map { it.key } + dash.map { it.key }).distinct()
+
+    private fun buildGraph(): View {
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val r = LinearLayout(this)
+        spin1 = Spinner(this); spin2 = Spinner(this)
+        r.addView(spin1, LinearLayout.LayoutParams(0, -2, 1f))
+        r.addView(spin2, LinearLayout.LayoutParams(0, -2, 1f))
+        col.addView(r)
+        val r2 = LinearLayout(this)
+        for (s in listOf(30, 60, 120)) r2.addView(button("${s}s") { graph.windowSec = s; graph.invalidate() },
+            LinearLayout.LayoutParams(0, -2, 1f))
+        col.addView(r2)
+        graph = GraphView(this)
+        col.addView(graph, LinearLayout.LayoutParams(-1, 0, 1f))
+        col.addView(text("Azul = 1º valor, laranja = 2º. Cada linha tem sua própria escala.", 12f, MUTED)
+            .apply { setPadding(dp(4), dp(6), dp(4), dp(4)) })
+        refreshGraphChoices()
+        return col
+    }
+
+    private fun refreshGraphChoices() {
+        if (!::spin1.isInitialized) return
+        val keys = graphCandidates()
+        val labels = keys.map { Modules.byKey(it)?.name ?: it }
+        fun setup(sp: Spinner, idx: Int, allowNone: Boolean) {
+            val ks: List<String?> = if (allowNone) listOf<String?>(null) + keys else keys
+            val ls = if (allowNone) listOf("(nenhum)") + labels else labels
+            sp.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, ls)
+            val sel = ks.indexOf(graphKeys[idx]).coerceAtLeast(0)
+            sp.setSelection(sel)
+            sp.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                    graphKeys[idx] = ks[pos]
+                    getSharedPreferences("cfg", 0).edit().putString("g${idx + 1}", ks[pos]).apply()
+                    drawGraph()
+                }
+                override fun onNothingSelected(p: AdapterView<*>?) {}
+            }
+        }
+        setup(spin1, 0, false)
+        setup(spin2, 1, true)
+    }
+
+    private fun drawGraph() {
+        if (!::graph.isInitialized) return
+        val out = mutableListOf<GraphView.Series>()
+        graphKeys.forEachIndexed { i, k ->
+            val m = k?.let { Modules.byKey(it) } ?: return@forEachIndexed
+            val pts = history[k]?.toList() ?: emptyList()
+            out += GraphView.Series(m.name, m.unit, m.dec, pts, if (i == 0) C1 else C2)
+        }
+        graph.series = out
+    }
+
+    // ---------- Diagnóstico ----------
     private fun buildDiag(): View {
         val sv = ScrollView(this)
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -208,11 +367,60 @@ class MainActivity : Activity() {
         }
         col.addView(diagOut, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         col.addView(text("Central", 13f, MUTED).apply { setPadding(dp(4), dp(14), 0, dp(4)) })
-        identView = text("--", 13f).apply { background = rounded(CARD); setPadding(dp(12), dp(12), dp(12), dp(12)) }
+        col.addView(button("Ler informações completas da central") { readEcuInfo() })
+        identView = text("--", 13f).apply {
+            background = rounded(CARD); setPadding(dp(12), dp(12), dp(12), dp(12)); setTextIsSelectable(true)
+        }
         col.addView(identView)
         return sv
     }
 
+    private fun readEcuInfo() {
+        val e = elm ?: run { identView.text = "Conecte primeiro."; return }
+        identView.text = "Lendo..."
+        val wasOn = monitoring
+        monitoring = false
+        jobs.put {
+            val sb = StringBuilder()
+            for ((k, v) in e.identDetails()) sb.append("$k:\n  $v\n")
+            sb.append("\nAdaptador: ${e.version}\nProtocolo: ${e.protocolName}\n")
+            val extras = listOf(0x81 to "VIN (2181)", 0x82 to "Rede / MUX (2182)", 0x84 to "Rastreabilidade (2184)")
+            for ((lid, name) in extras) {
+                sb.append("\n$name:\n  ").append(e.readInfo(lid) ?: "não suportado por esta central").append("\n")
+            }
+            monitoring = wasOn
+            ui.post { identView.text = sb.toString() }
+        }
+    }
+
+    private fun readDtcs(mode: String) {
+        val e = elm ?: run { diagOut.text = "Conecte primeiro."; return }
+        diagOut.text = "Lendo..."
+        jobs.put {
+            val codes = e.readDtcs(mode)
+            val tipo = if (mode == "03") "armazenado(s)" else "pendente(s)"
+            ui.post {
+                diagOut.text = if (codes.isEmpty()) "Nenhum código $tipo." else
+                    "${codes.size} código(s) $tipo:\n\n" + codes.joinToString("\n") { "$it – ${Elm327.describe(it)}" }
+            }
+        }
+    }
+
+    private fun confirmClear() {
+        val e = elm ?: run { diagOut.text = "Conecte primeiro."; return }
+        AlertDialog.Builder(this)
+            .setTitle("Apagar códigos de falha?")
+            .setMessage("Faça com a ignição LIGADA e o motor DESLIGADO. Se o defeito continuar, o código volta.")
+            .setPositiveButton("Apagar") { _, _ ->
+                jobs.put {
+                    val ok = e.clearDtcs()
+                    ui.post { diagOut.text = if (ok) "Códigos apagados." else "A central não confirmou o apagamento." }
+                }
+            }
+            .setNegativeButton("Cancelar", null).show()
+    }
+
+    // ---------- Bytes ----------
     private fun buildRaw(): View {
         val sv = ScrollView(this)
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -221,7 +429,8 @@ class MainActivity : Activity() {
         r.addView(button("Captura guiada") { startGuided() }, LinearLayout.LayoutParams(0, -2, 1f))
         r.addView(button("Zerar mín/máx") { synchronized(stats) { stats.clear() } }, LinearLayout.LayoutParams(0, -2, 1f))
         col.addView(r)
-        col.addView(text("byte: hex dec [mín-máx]   * = variou", 12f, MUTED).apply { setPadding(dp(4), dp(6), 0, dp(4)) })
+        col.addView(text("byte: hex dec [mín-máx]   * = variou   ✓ = já identificado", 12f, MUTED)
+            .apply { setPadding(dp(4), dp(6), 0, dp(4)) })
         rawView = text("--", 12f).apply { typeface = Typeface.MONOSPACE }
         col.addView(rawView)
         return sv
@@ -234,7 +443,7 @@ class MainActivity : Activity() {
 
     private fun askPermissionsAndConnect() {
         val missing = neededPermissions().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
-        if (Build.VERSION.SDK_INT >= 23 && missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), 1)
+        if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), 1)
         else connect(demo = false)
     }
 
@@ -261,7 +470,7 @@ class MainActivity : Activity() {
                     opener = { DemoLink() }
                 } else {
                     val dev = findDevice() ?: throw Exception(
-                        "Adaptador OBD não encontrado. Ligue a ignição, feche o app OBD de outro celular " +
+                        "Adaptador OBD não encontrado. Ligue a ignição, feche outro app OBD " +
                                 "e, em Android antigo, ative a Localização.")
                     getSharedPreferences("cfg", 0).edit().putString("addr", dev.address).apply()
                     opener = { BleLink(this, dev).connect() }
@@ -310,13 +519,13 @@ class MainActivity : Activity() {
         setStatus("Lendo identificação e blocos Renault...")
         val id = e.ident()
         lids = RenaultMap.LIDS.filter { e.renaultRead(it) != null }
-        ui.post { identView.text = (id ?: "--") + "\n${e.version}\n${e.protocolName}" }
+        ui.post { identView.text = (id ?: "--") + "\n${e.version}\n${e.protocolName}\n\nToque acima para ler tudo." }
         misses = 0
     }
 
     private fun onConnected() {
         btnDisc.isEnabled = true; btnPause.isEnabled = true
-        btnPause.text = "Pausar leitura"
+        btnPause.text = "Pausar"
         monitoring = true
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setStatus("Conectado – ${elm?.protocolName ?: ""}")
@@ -402,52 +611,35 @@ class MainActivity : Activity() {
     }
 
     private fun updateUi(b: Map<Int, ByteArray>) {
-        for (s in RenaultMap.SIGNALS) {
-            val v = s.read(b) ?: continue
-            valueViews[s.key]?.text = String.format(br, "%.${s.dec}f", v)
+        val now = System.currentTimeMillis()
+        // histórico p/ gráfico: valores conhecidos + escolhidos no Painel
+        val keys = (Modules.known.map { it.key } + dash.map { it.key } + graphKeys.filterNotNull()).distinct()
+        for (k in keys) {
+            val m = Modules.byKey(k) ?: continue
+            val v = m.read(b) ?: continue
+            val h = history.getOrPut(k) { ArrayDeque() }
+            h.addLast(now to v)
+            while (h.isNotEmpty() && now - h.first.first > 125_000) h.removeFirst()
+            valueViews[k]?.text = fmt(v, m.dec)
         }
         rate.text = "ciclo ${cycleMs} ms"
-        val sb = StringBuilder()
-        synchronized(stats) {
-            for (lid in lids) {
-                val d = b[lid] ?: continue
-                sb.append("21%02X  (%d bytes)\n".format(lid, d.size))
-                d.forEachIndexed { i, x ->
-                    val v = x.toInt() and 0xFF
-                    val st = stats[lid to i] ?: intArrayOf(v, v)
-                    sb.append("  %2d: %02X %3d [%3d-%3d]%s\n".format(i, v, v, st[0], st[1], if (st[0] != st[1]) " *" else ""))
+        if (pages[1].visibility == View.VISIBLE) drawGraph()
+        if (pages[3].visibility == View.VISIBLE) {
+            val sb = StringBuilder()
+            synchronized(stats) {
+                for (lid in lids) {
+                    val d = b[lid] ?: continue
+                    sb.append("21%02X  (%d bytes)\n".format(lid, d.size))
+                    d.forEachIndexed { i, x ->
+                        val v = x.toInt() and 0xFF
+                        val st = stats[lid to i] ?: intArrayOf(v, v)
+                        val mark = (if (st[0] != st[1]) " *" else "") + (if ((lid to i) in Modules.usedBytes) " ✓" else "")
+                        sb.append("  %2d: %02X %3d [%3d-%3d]%s\n".format(i, v, v, st[0], st[1], mark))
+                    }
                 }
             }
+            rawView.text = sb.toString()
         }
-        rawView.text = sb.toString()
-    }
-
-    // ---------- diagnóstico ----------
-    private fun readDtcs(mode: String) {
-        val e = elm ?: run { diagOut.text = "Conecte primeiro."; return }
-        diagOut.text = "Lendo..."
-        jobs.put {
-            val codes = e.readDtcs(mode)
-            val tipo = if (mode == "03") "armazenado(s)" else "pendente(s)"
-            ui.post {
-                diagOut.text = if (codes.isEmpty()) "Nenhum código $tipo." else
-                    "${codes.size} código(s) $tipo:\n\n" + codes.joinToString("\n") { "$it – ${Elm327.describe(it)}" }
-            }
-        }
-    }
-
-    private fun confirmClear() {
-        val e = elm ?: run { diagOut.text = "Conecte primeiro."; return }
-        AlertDialog.Builder(this)
-            .setTitle("Apagar códigos de falha?")
-            .setMessage("Faça com a ignição LIGADA e o motor DESLIGADO. Se o defeito continuar, o código volta.")
-            .setPositiveButton("Apagar") { _, _ ->
-                jobs.put {
-                    val ok = e.clearDtcs()
-                    ui.post { diagOut.text = if (ok) "Códigos apagados." else "A central não confirmou o apagamento." }
-                }
-            }
-            .setNegativeButton("Cancelar", null).show()
     }
 
     // ---------- captura guiada ----------
@@ -534,9 +726,9 @@ class MainActivity : Activity() {
         val sb = StringBuilder("hora;fase")
         for (lid in lids) for (i in 0 until (lens[lid] ?: 0)) sb.append(";%02X_%02d".format(lid, i))
         sb.append("\n")
-        val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS", Locale.US)
+        val fmtT = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS", Locale.US)
         for ((t, p, d) in rows) {
-            sb.append(fmt.format(Date(t))).append(';').append(p)
+            sb.append(fmtT.format(Date(t))).append(';').append(p)
             for (lid in lids) {
                 val b = d[lid]
                 for (i in 0 until (lens[lid] ?: 0)) sb.append(';').append(if (b != null && i < b.size) (b[i].toInt() and 0xFF).toString() else "")

@@ -60,6 +60,33 @@ class Elm327(private val link: Link, private val log: (String) -> Unit) {
                 "Diag %02X • Fornecedor %s".format(d[5], sup)
     }
 
+    /** Identificação completa (2180) campo a campo, no layout Renault. */
+    fun identDetails(): List<Pair<String, String>> {
+        val d = renaultRead(0x80, false) ?: return listOf("Identificação" to "sem resposta")
+        fun hx(a: Int, b: Int) = if (d.size >= b) d.copyOfRange(a, b).joinToString("") { "%02X".format(it) } else "--"
+        val out = mutableListOf(
+            "Referência Renault da central" to hx(0, 5),
+            "Versão do diagnóstico (Vdiag)" to hx(5, 6),
+            "Fornecedor" to (if (d.size >= 9) String(d.copyOfRange(6, 9), Charsets.US_ASCII) + " (001 = Siemens)" else "--"),
+            "Número de hardware" to hx(9, 14),
+            "Número do programa" to hx(14, 16),
+            "Versão do software" to hx(16, 18),
+            "Número de calibração" to hx(18, 20),
+            "Calibração de ajuste" to hx(20, 21),
+            "Calibração do sistema" to hx(21, 22),
+        )
+        out += "Resposta completa (2180)" to d.joinToString(" ") { "%02X".format(it) }
+        return out
+    }
+
+    /** Lê um identificador local qualquer e devolve hex + texto legível (para VIN, rastreabilidade...). */
+    fun readInfo(lid: Int): String? {
+        val d = renaultRead(lid, false) ?: return null
+        val hex = d.joinToString(" ") { "%02X".format(it) }
+        val ascii = d.map { val c = it.toInt() and 0xFF; if (c in 32..126) c.toChar() else '·' }.joinToString("")
+        return "$hex\n\"$ascii\""
+    }
+
     fun readDtcs(mode: String): List<String> {
         val resp = if (mode == "03") "43" else "47"
         val out = mutableListOf<String>()
