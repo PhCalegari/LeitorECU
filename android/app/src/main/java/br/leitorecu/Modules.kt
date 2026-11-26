@@ -16,8 +16,94 @@ class Module(
     val dec: Int,
     val provisional: Boolean,
     val raw: Boolean,
+    /** Se definido, mostra texto no lugar do número (ex.: estado da sonda). */
+    val text: ((Double) -> String)? = null,
     val read: (Map<Int, ByteArray>) -> Double?,
 )
+
+/**
+ * Acompanha a sonda lambda dianteira nos últimos ~12 s (ignorando o corte de injeção, em que ela
+ * cai naturalmente para ~0,05–0,1 V). Com o motor quente em malha fechada ela deve OSCILAR entre
+ * ~0,1 V (pobre) e ~0,9 V (rica).
+ */
+object LambdaWatch {
+    private val h = ArrayDeque<Pair<Long, Double>>()
+    private fun sig(k: String, b: Map<Int, ByteArray>) = RenaultMap.SIGNALS.firstOrNull { it.key == k }?.read(b)
+
+    fun feed(b: Map<Int, ByteArray>) {
+        val now = System.currentTimeMillis()
+        val v = sig("lambda", b) ?: return
+        val rpm = sig("rpm", b) ?: return
+        if (rpm < 500) { h.clear(); return }
+        if (sig("st_inj", b) == 0.0) return          // corte de injeção: leitura baixa é normal
+        if (v > 1.2) return                          // sonda fria / sem sinal
+        h.addLast(now to v)
+        while (h.isNotEmpty() && now - h.first().first > 12_000) h.removeFirst()
+    }
+
+    /** 2 = oscilando OK, 1 = rica, 0 = pobre, -1 = parada, 3 = motor frio (malha aberta). */
+    fun state(b: Map<Int, ByteArray>): Double? {
+        val water = sig("agua", b)
+        if (water != null && water < 65) return 3.0
+        if (h.size < 5) return null
+        val vs = h.map { it.second }
+        var cross = 0
+        for (i in 1 until vs.size) if ((vs[i - 1] < 0.45) != (vs[i] < 0.45)) cross++
+        val avg = vs.average()
+        val span = vs.max() - vs.min()
+        return when {
+            span > 0.4 && cross >= 2 -> 2.0            // oscilando: malha fechada funcionando
+            avg < 0.3 -> 0.0                           // pobre (ex.: pouco combustível / entrada de ar)
+            avg > 0.65 -> 1.0                          // rica (ex.: aceleração forte, enriquecimento)
+            span < 0.15 -> -1.0                        // realmente parada no meio: sonda suspeita
+            else -> 2.0                                // em transição, sem sinal de problema
+        }
+    }
+
+    // ---- correção da riqueza (PR035, 128 = neutro) nos últimos 30 s, só com injeção ativa e motor quente ----
+    private val corr = ArrayDeque<Pair<Long, Double>>()
+
+    fun feedMix(b: Map<Int, ByteArray>) {
+        val now = System.currentTimeMillis()
+        val c = sig("corr", b) ?: return
+        val rpm = sig("rpm", b) ?: return
+        val water = sig("agua", b)
+        if (rpm < 500 || (water != null && water < 65)) { corr.clear(); return }
+        if (sig("st_inj", b) == 0.0 || c == 128.0) return   // corte de injeção / malha aberta (fica em 128)
+        corr.addLast(now to c)
+        while (corr.isNotEmpty() && now - corr.first().first > 30_000) corr.removeFirst()
+    }
+
+    /** Correção média em % (positivo = central adicionando combustível, motor tendendo a pobre). */
+    fun mix(b: Map<Int, ByteArray>): Double? {
+        val water = sig("agua", b)
+        if (water != null && water < 65) return MIX_COLD
+        if (corr.size < 3) return null
+        return (corr.map { it.second }.average() - 128) * 100 / 128
+    }
+
+    const val MIX_COLD = 999.0
+
+    fun mixLabel(p: Double): String {
+        if (p == MIX_COLD) return "Motor frio"
+        val s = String.format(java.util.Locale("pt", "BR"), "%+.0f %%", p)
+        return when {
+            p > 20 -> "Pobre ⚠ ($s)"
+            p > 10 -> "Tend. pobre ($s)"
+            p < -20 -> "Rica ⚠ ($s)"
+            p < -10 -> "Tend. rica ($s)"
+            else -> "OK ($s)"
+        }
+    }
+
+    fun label(v: Double) = when (v.toInt()) {
+        2 -> "Oscilando ✓"
+        1 -> "Rica"
+        0 -> "Pobre"
+        3 -> "Motor frio"
+        else -> "Parada ⚠"
+    }
+}
 
 object Modules {
     /** Valores já identificados (mapa Renault SIM 32 Vdiag 04). */
@@ -29,7 +115,15 @@ object Modules {
         // consumo (estimado pelo tempo de injeção; fica "provisório" até calibrar no abastecimento)
         Module("cons_lh", "Consumo", "L/h", 2, true, false) { b -> Fuel.lh(b) },
         Module("cons_kml", "Consumo instantâneo", "km/L (GPS)", 1, true, false) { b -> Fuel.kml(b) },
+        Module("avg5_kml", "Consumo médio (5 min)", "km/L", 1, true, false) { _ -> Fuel.avg5Kml() },
+        Module("avg5_lh", "Consumo médio (5 min)", "L/h", 2, true, false) { _ -> Fuel.avg5Lh() },
         Module("trip_kml", "Média da viagem", "km/L", 1, true, false) { _ -> Fuel.avgKml() },
+        // estado da sonda dianteira nos últimos ~10 s: 2 = oscilando OK, 1 = rica, 0 = pobre, -1 = parada
+        // mistura: média da correção da riqueza (PR035) em 30 s; + = central adicionando combustível
+        Module("mistura", "Mistura", "correção média 30 s (+ = central adicionando combustível)", 0, false, false,
+            text = { LambdaWatch.mixLabel(it) }) { b -> LambdaWatch.mix(b) },
+        Module("lambda_st", "Sonda lambda (estado)", "últimos 12 s, motor quente", 0, false, false,
+            text = { LambdaWatch.label(it) }) { b -> LambdaWatch.state(b) },
         Module("trip_l", "Combustível gasto", "L (viagem)", 2, true, false) { _ -> Fuel.tripL },
         Module("trip_km", "Distância", "km (viagem, GPS)", 1, true, false) { _ -> Fuel.tripKm },
     )
@@ -61,7 +155,7 @@ object DashConfig {
     fun default(): MutableList<CardCfg> =
         Modules.known.filter {
             it.key !in setOf("pedal1", "pedal2", "st_inj", "st_lenta", "st_pe", "pedal_aprend", "trip_l", "trip_km",
-                "lambda2", "knock")
+                "lambda2", "knock", "avg5_lh")
         }
             .map { CardCfg(it.key, it.key == "rpm") }.toMutableList()
 

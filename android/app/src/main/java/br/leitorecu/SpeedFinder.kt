@@ -63,17 +63,17 @@ class SpeedFinder {
 
     data class Result(val lid: Int, val start: Int, val len: Int, val r: Double, val scale: Double, val offset: Double)
 
-    /** Melhor candidato, ou null se ainda não há dados suficientes / nenhum confiável. */
-    fun best(): Result? {
-        if (samples < 25 || vMax - vMin < 25) return null
+    /** Melhor candidato (r ≥ 0,95), ou null se ainda não há dados suficientes / nenhum confiável. */
+    fun best(minR: Double = 0.95): Result? {
+        if (samples < 20 || vMax - vMin < 20) return null
         var best: Result? = null
         for ((k, a) in acc) {
-            if (a.n < 20) continue
+            if (a.n < 15) continue
             val vx = a.n * a.sxx - a.sx * a.sx
             val vy = a.n * a.syy - a.sy * a.sy
             if (vx <= 0 || vy <= 0) continue
             val r = (a.n * a.sxy - a.sx * a.sy) / sqrt(vx * vy)
-            if (r < 0.98) continue
+            if (r < minR) continue
             val slope = (a.n * a.sxy - a.sx * a.sy) / vx
             val off = (a.sy - slope * a.sx) / a.n
             if (abs(off) > 8) continue                 // velocidade 0 deve dar ~0 no byte
@@ -86,9 +86,12 @@ class SpeedFinder {
 
     fun progress(): String = when {
         samples == 0 -> "Procurando a velocidade na central: dirija com GPS ligado e a central conectada."
-        samples < 25 || vMax - vMin < 25 ->
-            "Procurando a velocidade na central… $samples amostras (precisa variar de ~0 a 40+ km/h)."
+        samples < 20 || vMax - vMin < 20 ->
+            "Procurando a velocidade na central… $samples amostras (precisa variar ~20 km/h ou mais)."
         else -> best()?.let { "Encontrada: 21%02X byte %d (r = %.3f)".format(it.lid, it.start, it.r) }
-            ?: "Nenhum byte acompanha o GPS ainda ($samples amostras)."
+            ?: best(0.0)?.let {
+                "Ainda procurando ($samples amostras). Melhor até agora: 21%02X byte %d, r = %.2f (precisa ≥ 0,95)."
+                    .format(it.lid, it.start, it.r)
+            } ?: "Nenhum byte acompanha o GPS ainda ($samples amostras)."
     }
 }

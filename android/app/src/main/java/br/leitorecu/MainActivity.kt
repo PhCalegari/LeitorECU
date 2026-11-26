@@ -709,8 +709,10 @@ class MainActivity : Activity() {
     private fun updateUi(b: Map<Int, ByteArray>) {
         val now = System.currentTimeMillis()
         Fuel.tick(b)   // acumula litros e km da viagem
+        LambdaWatch.feed(b)
+        LambdaWatch.feedMix(b)
         // valores calculados (consumo) mostram "--" quando faltam dados, em vez do último valor
-        for (k in listOf("cons_lh", "cons_kml", "trip_kml")) {
+        for (k in listOf("cons_lh", "cons_kml", "trip_kml", "avg5_kml", "avg5_lh", "lambda_st", "mistura")) {
             val m = Modules.byKey(k) ?: continue
             if (m.read(b) == null) valueViews[k]?.text = "--"
         }
@@ -719,12 +721,16 @@ class MainActivity : Activity() {
         for (k in keys) {
             val m = Modules.byKey(k) ?: continue
             val v = m.read(b) ?: continue
+            if (v == LambdaWatch.MIX_COLD) {          // "motor frio": só texto, não entra no gráfico
+                valueViews[k]?.text = m.text?.invoke(v) ?: "--"; continue
+            }
             val h = history.getOrPut(k) { ArrayDeque() }
             h.addLast(now to v)
             while (h.isNotEmpty() && now - h.first.first > 125_000) h.removeFirst()
-            valueViews[k]?.text = fmt(v, m.dec)
+            valueViews[k]?.text = m.text?.invoke(v) ?: fmt(v, m.dec)
         }
-        latest = Modules.known.mapNotNull { m -> m.read(b)?.let { m.key to it } }.toMap()
+        latest = Modules.known.mapNotNull { m -> m.read(b)?.let { m.key to it } }.toMap() +
+                ("_t" to System.currentTimeMillis().toDouble())   // hora da última leitura da central
         rate.text = "ciclo ${cycleMs} ms"
         if (pages[1].visibility == View.VISIBLE) drawGraph()
         if (pages[4].visibility == View.VISIBLE) {

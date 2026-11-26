@@ -65,13 +65,34 @@ object Fuel {
 
     fun avgKml(): Double? = if (tripL > 0.01 && tripKm > 0.1) tripKm / tripL else null
 
+    // média móvel dos últimos 5 minutos: (hora, litros, km) de cada ciclo
+    private val window = ArrayDeque<Triple<Long, Double, Double>>()
+    private const val WINDOW_MS = 5 * 60 * 1000L
+
+    /** km/L médio dos últimos 5 min (precisa de pelo menos ~0,3 km rodados na janela). */
+    fun avg5Kml(): Double? {
+        val l = window.sumOf { it.second }
+        val km = window.sumOf { it.third }
+        return if (km > 0.3 && l > 0.005) (km / l).coerceAtMost(99.9) else null
+    }
+
+    /** L/h médio dos últimos 5 min. */
+    fun avg5Lh(): Double? {
+        if (window.size < 2) return null
+        val h = (window.last().first - window.first().first) / 3_600_000.0
+        return if (h > 0) window.sumOf { it.second } / h else null
+    }
+
     /** Acumula litros e km a cada ciclo de leitura. */
     fun tick(b: Map<Int, ByteArray>) {
         val now = System.currentTimeMillis()
         val dtH = if (lastTick == 0L) 0.0 else ((now - lastTick) / 3_600_000.0).coerceAtMost(10.0 / 3600)
         lastTick = now
-        lh(b)?.let { tripL += it * dtH }
-        (Gps.speed() ?: SpeedMap.read(b))?.let { tripKm += it * dtH }
+        val dL = (lh(b) ?: 0.0) * dtH
+        val dKm = ((Gps.speed() ?: SpeedMap.read(b)) ?: 0.0) * dtH
+        tripL += dL; tripKm += dKm
+        window.addLast(Triple(now, dL, dKm))
+        while (window.isNotEmpty() && now - window.first().first > WINDOW_MS) window.removeFirst()
         if (now - lastSave > 10_000) save()
     }
 

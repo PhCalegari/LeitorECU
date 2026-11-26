@@ -52,6 +52,28 @@ class DragPage(
     private val finder = SpeedFinder()
     private lateinit var speedFindTv: TextView
 
+    // linha com os dados da central (mostra na hora se a ECU está respondendo)
+    private lateinit var ecuTv: TextView
+    private val ecuTick = object : Runnable {
+        override fun run() {
+            showEcu()
+            Handler(Looper.getMainLooper()).postDelayed(this, 1000)
+        }
+    }
+
+    private fun showEcu() {
+        val e = ecuNow()
+        val t = e["_t"]
+        if (t == null || System.currentTimeMillis() - t > 5000) {
+            ecuTv.setTextColor(Color.parseColor("#FF6B6B"))
+            ecuTv.text = "⚠ Central sem dados novos – confira a conexão (linha no topo da tela)"
+            return
+        }
+        ecuTv.setTextColor(Color.parseColor("#7CDB6A"))
+        fun f(k: String, d: Int) = e[k]?.let { String.format(Locale("pt", "BR"), "%.${d}f", it) } ?: "--"
+        ecuTv.text = "Central: ${f("rpm", 0)} rpm • pedal ${f("pedal1", 0)} % • ${f("agua", 0)} °C • inj. ${f("inj", 1)} ms"
+    }
+
     private enum class St { OFF, WAIT_STOP, ARMED, RUNNING, DONE }
 
     private val br = Locale("pt", "BR")
@@ -147,6 +169,9 @@ class DragPage(
             orientation = LinearLayout.VERTICAL; addView(gearTv, big(gearTv, bigSp)); addView(tv("marcha", 13f, muted))
         }
         col.addView(row(sp, gr))
+        ecuTv = tv("", 15f, Color.WHITE, true)
+        col.addView(ecuTv)
+        ui.post(ecuTick)
         gearInfo = tv("", 12f, muted)
         col.addView(gearInfo)
         speedFindTv = tv("", 12f, Color.parseColor("#FFB300"))
@@ -292,10 +317,10 @@ class DragPage(
         val r = v / (rpm / 1000.0)                    // km/h por 1000 rpm
         ratioHist.addLast(t to r)
         while (ratioHist.isNotEmpty() && t - ratioHist.first().first > 2000) ratioHist.removeFirst()
-        // relação estável por ~1,5 s (variação < 4 %) => marcha engatada, sem embreagem
+        // relação estável por ~1 s (variação < 6 %) => marcha engatada, sem embreagem
         val rs = ratioHist.map { it.second }
-        val stable = ratioHist.size >= 2 && t - ratioHist.first().first >= 1200 &&
-                (rs.max() - rs.min()) / rs.average() < 0.04
+        val stable = ratioHist.size >= 2 && t - ratioHist.first().first >= 900 &&
+                (rs.max() - rs.min()) / rs.average() < 0.06
         if (stable) gears.learn(rs.average())
         gearNow = gears.match(r)
         gearTv.text = if (gearNow > 0) "${gearNow}ª" else "?"
@@ -480,7 +505,7 @@ class Gears(private val prefs: android.content.SharedPreferences) {
     }
 
     /** Centros confiáveis (vistos várias vezes), em ordem crescente = 1ª, 2ª, ... */
-    val centers: List<Double> get() = list.filter { it[1] >= 3 }.map { it[0] }.sorted()
+    val centers: List<Double> get() = list.filter { it[1] >= 2 }.map { it[0] }.sorted()
 
     fun learn(r: Double) {
         val near = list.minByOrNull { abs(it[0] - r) / it[0] }
