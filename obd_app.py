@@ -171,6 +171,61 @@ DTC_DESC = {
 }
 
 
+# Códigos da SIM32 D4 Vdiag 04 (manual Renault 17B, quadro de falhas): DTC OBD -> código Renault DF
+SIM32_DTC = {
+    "P0110": "DF003 – Circuito do sensor de temperatura do ar",
+    "P0115": "DF004 – Circuito do sensor de temperatura da água",
+    "P0325": "DF006 – Circuito do sensor de detonação",
+    "P0627": "DF008 – Circuito de comando do relé da bomba de combustível",
+    "P0685": "DF009 – Circuito de comando do relé principal (atuadores)",
+    "P0480": "DF010 – Circuito do eletroventilador – velocidade baixa",
+    "P0443": "DF014 – Circuito da eletroválvula de purga do cânister",
+    "P0135": "DF018 – Aquecimento da sonda lambda anterior",
+    "P0633": "DF021 – Imobilizador (antiarranque)",
+    "P0606": "DF022 – Central de injeção (calculador)",
+    "P0335": "DF025 – Circuito do sensor de rotação (volante do motor)",
+    "P0481": "DF030 – Circuito do eletroventilador – velocidade alta",
+    "P0141": "DF038 – Aquecimento da sonda lambda posterior",
+    "P0105": "DF045 – Circuito do sensor de pressão do coletor",
+    "P0201": "DF052 – Circuito do injetor – cilindro 1",
+    "P0202": "DF053 – Circuito do injetor – cilindro 2",
+    "P0203": "DF054 – Circuito do injetor – cilindro 3",
+    "P0204": "DF055 – Circuito do injetor – cilindro 4",
+    "P0130": "DF057 – Circuito da sonda lambda anterior",
+    "P0136": "DF058 – Circuito da sonda lambda posterior",
+    "P0351": "DF061 – Circuito da bobina de ignição 1-4",
+    "P0352": "DF062 – Circuito da bobina de ignição 2-3",
+    "P0500": "DF064 – Sinal de velocidade do veículo",
+    "P0313": "DF079 – Falha de combustão com combustível na reserva",
+    "P0504": "DF095 – Informação dos freios (interruptor do pedal)",
+    "P0641": "DF096 – Tensão de alimentação nº 1 dos sensores",
+    "P0651": "DF097 – Tensão de alimentação nº 2 dos sensores",
+    "P0301": "DF111 – Falha de combustão – cilindro 1",
+    "P0302": "DF112 – Falha de combustão – cilindro 2",
+    "P0303": "DF113 – Falha de combustão – cilindro 3",
+    "P0304": "DF114 – Falha de combustão – cilindro 4",
+    "P0170": "DF116 – Falha funcional do circuito de combustível (mistura)",
+    "P0530": "DF118 – Circuito do sensor de pressão do gás do A/C",
+    "P0650": "DF120 – Circuito da luz de anomalia (OBD)",
+    "P0120": "DF123 – Potenciômetro da borboleta – pista 1",
+    "P0220": "DF124 – Potenciômetro da borboleta – pista 2",
+    "P0225": "DF125 – Potenciômetro do pedal – pista 1",
+    "P2120": "DF126 – Potenciômetro do pedal – pista 2",
+    "U0101": "DF128 – Comunicação CAN com câmbio automático/robotizado",
+    "P0560": "DF157 – Tensão da bateria",
+    "P0300": "DF165 – Detecção de falhas de combustão",
+    "P0460": "DF187 – Informação de nível mínimo de combustível",
+    "P0315": "DF189 – Coroa dentada do volante (aprendizado)",
+    "P0655": "DF215 – Circuito da luz de gravidade 2",
+    "P0638": "DF216 – Corpo de borboleta motorizada",
+    "P0645": "DF228 – Comando do compressor do A/C",
+    "U0122": "DF233 – Controle de trajetória (ESP)",
+    "P2101": "DF254 – Comando da borboleta motorizada",
+    "U0155": "DF344 – Comunicação injeção – painel de instrumentos",
+    "U0302": "DF360 – Função câmbio automático",
+}
+DTC_DESC.update(SIM32_DTC)
+
 def decode_dtc(h4):
     first = int(h4[0], 16)
     return "PCBU"[first >> 2] + str(first & 3) + h4[1:]

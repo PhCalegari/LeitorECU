@@ -68,6 +68,9 @@ Os índices são do byte de dados, depois do `61 xx`. As referências vêm do ma
 
 As capturas de exemplo (CSV) estão em `capturas/`. A tensão lida pelo próprio adaptador (`ATRV`) marca cerca de 2,2 V a mais do que a real.
 
+## Códigos de falha
+Os dois apps mostram, para cada código OBD (P0xxx/U0xxx), o **código Renault (DF)** e a descrição do quadro de falhas oficial da SIM32 D4 Vdiag 04 (manual 17B). São 50 códigos. Por exemplo, P0627 aparece como "DF008 – circuito de comando do relé da bomba de combustível".
+
 ## Observações
 - O app só **lê** dados e códigos de falha. Ele não mexe em imobilizador nem em programação da central.
 - A conversão dos bytes é engenharia reversa a partir de medições próprias. Os itens marcados 🟡 ainda precisam ser confirmados.
