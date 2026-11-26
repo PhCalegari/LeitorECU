@@ -55,7 +55,10 @@ object Learner {
         fun describe() = "21%02X byte %d".format(lid, byte) + (if (isBit) " bit $bit" else " (valor)") + " – $hits/$events vezes"
     }
 
-    private data class Pending(val label: String, val t: Long)
+    /** [after] = o usuário marcou DEPOIS que aconteceu (ventoinha): compara com o que havia antes do toque. */
+    private data class Pending(val label: String, val t: Long, val after: Boolean) {
+        val readyAt get() = t + if (after) 4500 else 6000
+    }
     private val pending = ArrayList<Pending>()
     var lastMsg = ""; private set
 
@@ -65,16 +68,41 @@ object Learner {
 
     fun init(ctx: Context) {
         p = ctx.getSharedPreferences("learn", 0)
-        sessionStart = 0L
+        analogSaved.clear()
+        p?.getString("analog", "")?.split(",")?.filter { it.isNotBlank() }?.let { analogSaved.addAll(it) }
     }
 
-    /** O usuário fez a ação no instante [t] (fim da contagem regressiva). */
+    /** Ventoinha: o usuário não controla quando muda, então marca na hora (sem contagem). */
+    fun isAfterEvent(label: String) = label == FAN
+
+    /** A ação aconteceu no instante [t] (fim da contagem) ou pouco antes (eventos marcados depois). */
     fun mark(label: String, t: Long) {
-        pending.add(Pending(label, t))
-        lastMsg = "Analisando “$label”… aguarde 6 s sem mexer em mais nada."
+        val after = isAfterEvent(label)
+        pending.add(Pending(label, t, after))
+        if (label == FAN) {
+            // guarda a água só se ela está no pico dos últimos 3 min (= ventoinha LIGANDO, não desligando)
+            val w = waterHist.lastOrNull()?.second
+            if (w != null && w >= waterHist.maxOf { it.second } - 0.7 && w > 85) addFanTemp(w, false)
+        }
+        lastMsg = "Analisando “$label”… aguarde ${if (after) 5 else 6} s sem mexer em mais nada."
     }
 
     fun events(label: String) = p?.getInt("ev_$label", 0) ?: 0
+
+    /** Valores diferentes já vistos em cada byte (até 9) – separa bits de estado de valores analógicos. */
+    private val distinct = HashMap<Pair<Int, Int>, HashSet<Int>>()
+    /** Bytes já vistos como analógicos (salvo: vale logo ao abrir o app, antes de juntar valores de novo). */
+    private val analogSaved = HashSet<String>()
+    private fun analogLike(lid: Int, i: Int) =
+        (distinct[lid to i]?.size ?: 0) > 8 || "%02X:%d".format(lid, i) in analogSaved
+
+    private fun noteValue(lid: Int, i: Int, v: Int) {
+        val s = distinct.getOrPut(lid to i) { HashSet() }
+        if (s.size > 8) return
+        s.add(v)
+        if (s.size > 8 && analogSaved.add("%02X:%d".format(lid, i)))
+            p?.edit()?.putString("analog", analogSaved.joinToString(","))?.apply()
+    }
 
     fun cands(label: String): List<Cand> {
         val n = events(label)
@@ -82,7 +110,8 @@ object Learner {
         return s.split(",").mapNotNull { e ->
             val i = e.lastIndexOf('=')
             if (i <= 0) null else Cand(e.substring(0, i), e.substring(i + 1).toIntOrNull() ?: 0, n)
-        }.sortedWith(compareByDescending<Cand> { it.hits }.thenBy { if (it.isBit) 0 else 1 })
+        }.filter { !analogLike(it.lid, it.byte) }   // descobriu depois que o byte é analógico: descarta
+            .sortedWith(compareByDescending<Cand> { it.hits }.thenBy { if (it.isBit) 0 else 1 })
     }
 
     /** Bit confirmado para o rótulo (para mostrar no Painel), ou null. */
@@ -97,8 +126,9 @@ object Learner {
     private fun window(t0: Long, t1: Long) = buf.filter { it.first in t0..t1 }.map { it.second }
 
     private fun evaluate(ev: Pending) {
-        val before = window(ev.t - 3500, ev.t + 300)
-        val after = window(ev.t + 2000, ev.t + 6000)
+        // marcado depois (ventoinha): mudou ~1-3 s antes do toque → antes = 7..3 s antes, depois = do toque em diante
+        val before = if (ev.after) window(ev.t - 7000, ev.t - 3000) else window(ev.t - 3500, ev.t + 300)
+        val after = if (ev.after) window(ev.t, ev.t + 4500) else window(ev.t + 2000, ev.t + 6000)
         if (before.size < 2 || after.size < 2) {
             lastMsg = "“${ev.label}”: poucos dados (a central estava lendo devagar). Tente de novo."
             return
@@ -110,6 +140,9 @@ object Learner {
             for (i in 0 until n) {
                 val bv = before.mapNotNull { it[lid]?.get(i)?.toInt()?.and(0xFF) }
                 val av = after.mapNotNull { it[lid]?.get(i)?.toInt()?.and(0xFF) }
+                // byte com muitos valores diferentes = valor analógico ainda sem nome (ex.: 21A2 byte 19 tem 24
+                // valores numa captura): os bits dele mudam sempre que a rotação/carga muda → não é bit de estado
+                if (analogLike(lid, i)) continue
                 // bits: estáveis antes e depois, e diferentes entre os dois
                 if ((lid to i) !in analog) {
                     for (bit in 0..7) {
@@ -123,9 +156,6 @@ object Learner {
                     abs(av.average() - bv.average()) >= 4) found.add("%02X:%d:B".format(lid, i))
             }
         }
-        // ventoinha marcada à mão: guarda a temperatura da água no momento
-        if (ev.label == FAN) after.lastOrNull()?.let { b -> sig("agua", b)?.let { addFanTemp(it, false) } }
-
         val n = events(ev.label) + 1
         val old = cands(ev.label).associate { it.key to it.hits }.toMutableMap()
         found.forEach { old[it] = (old[it] ?: 0) + 1 }
@@ -153,18 +183,22 @@ object Learner {
 
     private var fanBitLast: Int? = null
     private var lastAutoFan = 0L
+    /** Água dos últimos 3 min: a ventoinha LIGA no pico; quando desliga, a água já caiu alguns graus. */
+    private val waterHist = ArrayDeque<Pair<Long, Double>>()
+    private fun atPeak(w: Double) = waterHist.isNotEmpty() && w >= waterHist.maxOf { it.second } - 0.7
 
     private fun watchFan(b: Map<Int, ByteArray>, now: Long) {
         val water = sig("agua", b) ?: return
-        // 1) já sabe o bit da ventoinha: registra a água em cada vez que ela liga
+        waterHist.addLast(now to water)
+        while (waterHist.isNotEmpty() && now - waterHist.first().first > 180_000) waterHist.removeFirst()
+        // 1) já sabe o bit da ventoinha: registra a água em cada vez que ela LIGA (mudança no pico de temperatura)
         learnedBit(FAN)?.let { c ->
             val d = b[c.lid] ?: return@let
             if (c.byte >= d.size) return@let
             val v = (d[c.byte].toInt() shr c.bit) and 1
             val prev = fanBitLast
             fanBitLast = v
-            // o sentido de "ligado" é o valor que aparece com a água mais quente
-            if (prev != null && prev != v && water > 85 && now - lastAutoFan > 60_000) {
+            if (prev != null && prev != v && water > 85 && atPeak(water) && now - lastAutoFan > 60_000) {
                 lastAutoFan = now
                 addFanTemp(water, true)
             }
@@ -177,14 +211,14 @@ object Learner {
         val recent = buf.toList().takeLast(8).mapNotNull { sig("bat", it.second) }
         if (recent.size < 8) return
         val a = recent.take(4).average(); val c = recent.takeLast(3).average()
-        if (a - c >= 0.15 && now - lastAutoFan > 120_000) { lastAutoFan = now; addFanTemp(water, true) }
+        if (a - c >= 0.15 && atPeak(water) && now - lastAutoFan > 120_000) { lastAutoFan = now; addFanTemp(water, true) }
     }
 
     fun fanReport(): String {
         val m = fanTemps(true); val a = fanTemps(false)
         val all = m + a
         if (all.isEmpty()) return "Ainda sem registro. Deixe o carro em lenta até a ventoinha ligar e toque em “Ventoinha” " +
-                "na hora que ela ligar (2 a 3 vezes). A ventoinha do D4D liga a 99 °C."
+                "assim que ouvir ela ligar (2 a 3 vezes, sem contagem). A ventoinha do D4D liga a 99 °C."
         val med = median(all)!!
         val verdict = when {
             abs(med - 99) <= 3 -> "✓ escala da temperatura da água confere (esperado 99 °C)."
@@ -196,20 +230,19 @@ object Learner {
     }
 
     // ---------- partida a frio ----------
-    private var sessionStart = 0L
-
+    /** Primeira leitura depois de 3 h ou mais sem dados (mesmo com o app aberto a noite toda). */
     private fun coldStart(b: Map<Int, ByteArray>, now: Long) {
         val pr = p ?: return
-        if (sessionStart == 0L) {
-            sessionStart = now
-            val last = pr.getLong("last_seen", 0L)
+        val last = pr.getLong("last_seen", 0L)
+        if (last > 0 && now - last > 3 * 3_600_000L) {
             val water = sig("agua", b); val air = sig("ar", b)
-            if (last > 0 && now - last > 3 * 3_600_000L && water != null && air != null) {
+            if (water != null && air != null) {
                 val l = (coldList() + "${f(water, 1)}/${f(air, 1)}/${(now - last) / 3_600_000}").takeLast(10)
-                pr.edit().putString("cold", l.joinToString(";")).apply()
+                pr.edit().putString("cold", l.joinToString(";")).putLong("last_seen", now).apply()
+                return
             }
         }
-        if (now - pr.getLong("last_seen", 0L) > 30_000) pr.edit().putLong("last_seen", now).apply()
+        if (now - last > 30_000) pr.edit().putLong("last_seen", now).apply()
     }
 
     private fun coldList() = (p?.getString("cold", "") ?: "").split(";").filter { it.isNotBlank() }
@@ -257,7 +290,7 @@ object Learner {
         val today = day.format(Date(now))
         val old = parseDay(pr.getString("slow_$today", "") ?: "").toMutableMap()
         for ((k, v) in sLast) {
-            val constant = (sMax[k] ?: 0) - (sMin[k] ?: 0) <= 1
+            val constant = sMax[k] == sMin[k]   // exatamente fixo na viagem
             val key = "%02X:%d".format(k.first, k.second)
             if (!constant) { old[key] = -1; continue }
             val prev = old[key]
@@ -296,15 +329,17 @@ object Learner {
     }
 
     fun resetAll() {
-        p?.edit()?.clear()?.apply()
+        // mantém a lista de bytes analógicos (não é "aprendizado" do usuário, é como a central se comporta)
+        p?.edit()?.clear()?.putString("analog", analogSaved.joinToString(","))?.apply()
         sMin.clear(); sMax.clear(); sLast.clear(); sCount = 0; lastMsg = ""
     }
 
     // ---------- entrada ----------
     fun feed(b: Map<Int, ByteArray>, now: Long) {
         buf.addLast(now to b.mapValues { it.value.copyOf() })
+        for ((lid, d) in b) for (i in d.indices) noteValue(lid, i, d[i].toInt() and 0xFF)
         while (buf.isNotEmpty() && now - buf.first().first > 20_000) buf.removeFirst()
-        val ready = pending.filter { now >= it.t + 6000 }
+        val ready = pending.filter { now >= it.readyAt }
         pending.removeAll(ready)
         ready.forEach { evaluate(it) }
         watchFan(b, now)
@@ -334,7 +369,7 @@ object Health {
         Metric("mix", "Correção da mistura", "%", 0, 8.0, false, 20,
             "mistura mais pobre que o normal: entrada de ar falso, filtro/bomba de combustível ou bico sujo",
             "mistura mais rica que o normal: bico pingando, filtro de ar sujo ou sonda lambda"),
-        Metric("run_temp", "Temperatura em uso", "°C", 0, 6.0, false, 20,
+        Metric("run_temp", "Temperatura em uso", "°C", 0, 6.0, false, 60,
             "motor mais quente que o normal: nível da água, ventoinha ou válvula termostática",
             "motor mais frio que o normal: válvula termostática presa aberta"),
         Metric("bat_run", "Bateria com motor ligado", "V", 1, 0.4, false, 20,
@@ -358,6 +393,7 @@ object Health {
     private var crankMin: Double? = null
     private var crankAt = 0L
     private var running = false
+    private var runningSince = 0L
     private var warmT0 = 0L
 
     fun init(ctx: Context) {
@@ -417,6 +453,7 @@ object Health {
         if (rpm in 30.0..450.0 && bat != null) { crankMin = minOf(crankMin ?: bat, bat); crankAt = now }
         if (!running && rpm > 600) {
             running = true
+            runningSince = now
             crankMin?.let { if (now - crankAt < 10_000 && cur["crank_min"].isNullOrEmpty()) add("crank_min", it, now, 0) }
             if (water != null && water < 40) warmT0 = now
         }
@@ -433,7 +470,9 @@ object Health {
             }
             if (corr != null && corr != 128.0) add("mix", (corr - 128) * 100 / 128, now)
         }
-        if (water != null && water > 75 && rpm > 1500) add("run_temp", water, now)
+        // só depois de 10 min rodando: no começo o motor ainda está esquentando (evita alarme falso de "mais frio")
+        if (water != null && water > 75 && rpm > 1500 && running && now - runningSince > 10 * 60_000)
+            add("run_temp", water, now)
         if (bat != null && rpm > 1500) add("bat_run", bat, now)
 
         if (now - lastSave > 60_000) { lastSave = now; saveCur() }
@@ -538,7 +577,8 @@ class LearnPage(
         e.addView(tv("Ensinar o app", 16f, Color.WHITE, true))
         e.addView(tv("Com o motor ligado e o carro parado, toque no item, espere a contagem e, no “AGORA”, " +
                 "ligue OU desligue aquilo. O app procura o que mudou na central no mesmo instante. " +
-                "Repita 2–3 vezes (ligando e desligando) para confirmar.", 12f, muted))
+                "Repita 2–3 vezes (ligando e desligando) para confirmar. " +
+                "Ventoinha é diferente: em lenta, toque assim que ouvir ela ligar ou desligar (sem contagem).", 12f, muted))
         val grid = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
         Learner.LABELS.chunked(2).forEach { pair ->
             val r = LinearLayout(act)
@@ -594,6 +634,15 @@ class LearnPage(
         if (counting) return
         if (!connected()) { msgTv.text = "Conecte na central primeiro (e deixe o motor ligado)."; return }
         counting = true
+        if (Learner.isAfterEvent(label)) {
+            // ventoinha: não dá para provocar na hora certa → marca agora, olhando o que mudou logo antes
+            tone?.startTone(ToneGenerator.TONE_PROP_BEEP2, 300)
+            Learner.mark(label, System.currentTimeMillis())
+            countTv.setTextColor(green); countTv.text = "Marcado: $label mudou agora."
+            msgTv.text = Learner.lastMsg
+            ui.postDelayed({ countTv.text = ""; counting = false; refresh(true) }, 5000)
+            return
+        }
         var n = 3
         val tick = object : Runnable {
             override fun run() {
@@ -625,6 +674,21 @@ class LearnPage(
         alertTv.visibility = if (al.isEmpty()) View.GONE else View.VISIBLE
         healthTv.text = Health.METRICS.joinToString("\n") { Health.line(it) }
 
+        // só recria a lista quando o conteúdo muda (recriar a cada segundo podia "engolir" o toque no botão)
+        val sig = Learner.LABELS.joinToString("|") { l -> "${Learner.events(l)}:" + Learner.cands(l).take(3).joinToString { it.key + it.hits } }
+        if (sig != learnedSig) {
+            learnedSig = sig
+            rebuildLearned()
+        }
+
+        fanTv.text = Learner.fanReport()
+        coldTv.text = Learner.coldReport()
+        slowTv.text = Learner.slowReport()
+    }
+
+    private var learnedSig: String? = null
+
+    private fun rebuildLearned() {
         learnedBox.removeAllViews()
         var any = false
         for (label in Learner.LABELS) {
@@ -647,9 +711,5 @@ class LearnPage(
             }
         }
         if (!any) learnedBox.addView(tv("Nada ainda. Use “Ensinar o app” acima.", 13f, muted))
-
-        fanTv.text = Learner.fanReport()
-        coldTv.text = Learner.coldReport()
-        slowTv.text = Learner.slowReport()
     }
 }

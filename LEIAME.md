@@ -69,7 +69,8 @@ Os índices são do byte de dados, depois do `61 xx`. As referências vêm do ma
 | Borboleta medida (PR017) | `21A3` 18 | × 100/256 % | 🟡 12,1–12,9 % em marcha lenta (manual: 12 %); fica em 0 com o motor parado |
 | Injeção ativa (corte na desaceleração) | `21A2` 2, bit 7 | 1 = injetando, 0 = corte | 🟡 vai a 0 ao soltar o pedal acima de ~1.000 rpm |
 | Regulação de marcha lenta ativa | `21A2` 2, bit 6 | 1 = ativa | 🟡 1 em marcha lenta, 0 ao acelerar |
-| Pé levantado | `21A0` 0, bit 6 | 1 = pedal solto | 🟡 vai a 0 ao pisar, mesmo com o motor desligado |
+| Pé levantado | `21A2` 0, bit 6 (cópia em `21A3` 0) | 1 = pedal solto | 🟡 240 com o pé solto, 128 pisando, mesmo com o motor desligado (corrigido: antes estava em `21A0` 0, que fica sempre 0) |
+| Pé no fundo | `21A2` 0, bit 1 | 1 = pedal no fundo | 🟡 131 com o pedal a 89 % nas capturas |
 | Marcha lenta desejada (PR041) | `21A2` 17–18 | valor direto (rpm) | ✅ 752: exatamente o valor do manual ("PR041 = 752 r.p.m.") |
 | Pedal solto aprendido (PR008) | `21A3` 16 | × 100/256 % | ✅ 14,1 % (manual: 14 %) |
 | Cópias da rotação | `21A3` 9–10 e `21A4` 10–11 | valor direto (rpm) | ✅ mesmo valor de `21A2` 7–8 |
@@ -90,6 +91,8 @@ Medidores disponíveis: consumo (L/h), consumo instantâneo (km/L), média da vi
 O app vai aprendendo sozinho, sem IA: compara a central com coisas que ele já sabe.
 
 **Ensinar o app (eventos):** com o motor ligado e o carro parado, toque em um item (Ar-condicionado, Ventoinha, Farol, Freio, Vidro térmico, Embreagem), espere a contagem e, no "AGORA", ligue ou desligue aquilo. O app compara os bits e bytes da central 3 s antes e 2–6 s depois e guarda o que mudou junto. Depois de 2 ou mais vezes (em pelo menos 75 % delas) o bit fica "aprendido" e pode ser mostrado no Painel.
+
+Bytes que já mostraram mais de 8 valores diferentes são tratados como valores analógicos e não entram como candidatos (os bits deles mudam sempre que a rotação muda). A **ventoinha** é marcada sem contagem: toque assim que ouvir ela ligar ou desligar.
 
 **Ventoinha × água:** a temperatura da água quando a ventoinha liga (marcada à mão, pelo bit aprendido ou estimada por uma queda da bateria em lenta) é comparada com os 99 °C esperados, para conferir a escala da água.
 

@@ -215,11 +215,11 @@ class DemoLink : Link() {
             c == "21A0" -> {
                 val b = IntArray(24)
                 val map = ((350 + 60 * rev - 103) / 0.0578125).toInt()
-                b[0] = if (rev < 0.05) 0xF0 else 0x80
                 b[12] = map shr 8; b[13] = map; hex(b).let { "61A0$it" }
             }
             c == "21A2" -> {
                 val b = IntArray(22)
+                b[0] = if (rev < 0.05) 0xF0 else 0x80   // pé levantado (bit 6), como no carro
                 b[7] = rpm shr 8; b[8] = rpm
                 b[2] = if (rev < 0.05) 0xD6 else 0x96
                 b[11] = if ((t * 2).toInt() % 2 == 0) 15 else 80          // lambda oscilando

@@ -209,7 +209,8 @@ class MainActivity : Activity() {
             isChecked = autoPref()
             setOnCheckedChangeListener { _, on ->
                 getSharedPreferences("cfg", 0).edit().putBoolean("auto", on).apply()
-                if (!on) autoActive = false
+                // ligar já conectado (no carro, não no Demo) também passa a reconectar sozinho se cair
+                autoActive = on && elm != null && link !is DemoLink
             }
         })
 
@@ -219,7 +220,8 @@ class MainActivity : Activity() {
                 it.setPadding(dp(2), 0, dp(2), 0)
                 if (Build.VERSION.SDK_INT >= 26)
                     it.setAutoSizeTextTypeUniformWithConfiguration(9, 14, 1, TypedValue.COMPLEX_UNIT_SP)
-                tabRow.addView(it, LinearLayout.LayoutParams(0, -2, 1f))
+                // altura fixa: o texto autoajustável do Android fica instável com altura "wrap_content"
+                tabRow.addView(it, LinearLayout.LayoutParams(0, dp(42), 1f))
             }
         }
         col.addView(tabRow)
@@ -788,8 +790,8 @@ class MainActivity : Activity() {
 
     private fun updateUi(b: Map<Int, ByteArray>) {
         val now = System.currentTimeMillis()
-        Fuel.tick(b)   // acumula litros e km da viagem
-        if (link !is DemoLink) {     // o modo Demo não pode "ensinar" nada
+        if (link !is DemoLink) {     // o modo Demo não pode "ensinar" nada nem somar na viagem/calibração
+            Fuel.tick(b)   // acumula litros e km da viagem
             Learner.feed(b, now)
             Health.feed(b, now)
         }

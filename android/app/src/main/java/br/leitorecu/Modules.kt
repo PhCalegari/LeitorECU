@@ -163,7 +163,7 @@ object DashConfig {
 
     fun default(): MutableList<CardCfg> =
         Modules.known.filter {
-            it.key !in setOf("pedal1", "pedal2", "st_inj", "st_lenta", "st_pe", "pedal_aprend", "trip_l", "trip_km",
+            it.key !in setOf("pedal1", "pedal2", "st_inj", "st_lenta", "st_pe", "st_fundo", "pedal_aprend", "trip_l", "trip_km",
                 "lambda2", "knock", "avg5_lh")
         }
             .map { CardCfg(it.key, it.key == "rpm") }.toMutableList()

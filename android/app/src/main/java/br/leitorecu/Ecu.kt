@@ -222,8 +222,13 @@ object RenaultMap {
         Signal("st_lenta", "Regulação marcha lenta", "1 = ativa", 0xA2, 2, 1, 0, true) {
             if (it and 0x40 != 0) 1.0 else 0.0
         },
-        Signal("st_pe", "Pé levantado", "1 = sim", 0xA0, 0, 1, 0, true) {
+        // 21A2 byte 0 (cópia em 21A3 byte 0): 240 (F0) pé solto, 128 (80) pisando, 131 (83) pedal no fundo – nas 3
+        // capturas, inclusive com o motor desligado. (Antes estava em 21A0 byte 0, que fica sempre 0: erro corrigido.)
+        Signal("st_pe", "Pé levantado", "1 = sim", 0xA2, 0, 1, 0, true) {
             if (it and 0x40 != 0) 1.0 else 0.0
+        },
+        Signal("st_fundo", "Pé no fundo", "1 = pedal no fundo", 0xA2, 0, 1, 0, true) {
+            if (it and 0x02 != 0) 1.0 else 0.0
         },
         // PR035 "Valor de corrección de riqueza" – o manual mostra o valor bruto (128 = neutro)
         Signal("corr", "Correção riqueza", "128 = neutro", 0xA2, 16, 1, 0, false) { it.toDouble() },
