@@ -40,6 +40,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
+import android.widget.Toast
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.ArrayDeque
@@ -113,12 +114,17 @@ class MainActivity : Activity() {
 
     private val worker = Thread { workerLoop() }
     private lateinit var drag: DragPage
+    private lateinit var learn: LearnPage
+    private lateinit var alertView: TextView
+    private var lastAlert = 0L
     @Volatile private var latest: Map<String, Double> = emptyMap()
 
     // =====================================================================
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Fuel.init(this)
+        Learner.init(this)
+        Health.init(this)
         SpeedMap.load(getSharedPreferences("cfg", 0))
         dash = DashConfig.load(this)
         val gp = getSharedPreferences("cfg", 0)
@@ -208,15 +214,21 @@ class MainActivity : Activity() {
         })
 
         val tabRow = LinearLayout(this).apply { setPadding(0, dp(6), 0, dp(6)) }
-        tabs = listOf("Painel", "Gráfico", "Pista", "Diag.", "Bytes").mapIndexed { i, s ->
-            button(s) { showPage(i) }.also { tabRow.addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
+        tabs = listOf("Painel", "Gráfico", "Pista", "Diag.", "Bytes", "Aprender").mapIndexed { i, s ->
+            button(s) { showPage(i) }.also {
+                it.setPadding(dp(2), 0, dp(2), 0)
+                if (Build.VERSION.SDK_INT >= 26)
+                    it.setAutoSizeTextTypeUniformWithConfiguration(9, 14, 1, TypedValue.COMPLEX_UNIT_SP)
+                tabRow.addView(it, LinearLayout.LayoutParams(0, -2, 1f))
+            }
         }
         col.addView(tabRow)
 
         val content = FrameLayout(this)
         col.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
         drag = DragPage(this, { latest }, { synchronized(blocks) { HashMap(blocks) } })
-        pages = listOf(buildDashboard(), buildGraph(), drag.view, buildDiag(), buildRaw())
+        learn = LearnPage(this, { elm != null && monitoring && link !is DemoLink }, { k -> addToDash(k) })
+        pages = listOf(buildDashboard(), buildGraph(), drag.view, buildDiag(), buildRaw(), learn.view)
         pages.forEach { content.addView(it) }
         showPage(0)
         setContentView(root)
@@ -244,6 +256,12 @@ class MainActivity : Activity() {
         col.addView(top)
         rate = text("", 12f, MUTED).apply { setPadding(dp(4), 0, 0, dp(2)) }
         col.addView(rate)
+        alertView = text("", 14f, WARN, true).apply {
+            setPadding(dp(8), dp(6), dp(8), dp(6)); background = rounded(Color.parseColor("#3A2A10"))
+            visibility = View.GONE
+            setOnClickListener { showPage(5) }
+        }
+        col.addView(alertView)
 
         grid = GridLayout(this).apply { columnCount = 2 }
         col.addView(grid)
@@ -251,6 +269,14 @@ class MainActivity : Activity() {
             12f, MUTED).apply { setPadding(dp(4), dp(8), dp(4), dp(8)) })
         rebuildDashboard()
         return sv
+    }
+
+    /** Adiciona um medidor ao Painel (ex.: bit aprendido na aba Aprender). */
+    private fun addToDash(key: String) {
+        if (dash.none { it.key == key }) dash.add(CardCfg(key, false))
+        DashConfig.save(this, dash)
+        rebuildDashboard()
+        Toast.makeText(this, "Adicionado ao Painel", Toast.LENGTH_SHORT).show()
     }
 
     private fun rebuildDashboard() {
@@ -763,6 +789,17 @@ class MainActivity : Activity() {
     private fun updateUi(b: Map<Int, ByteArray>) {
         val now = System.currentTimeMillis()
         Fuel.tick(b)   // acumula litros e km da viagem
+        if (link !is DemoLink) {     // o modo Demo não pode "ensinar" nada
+            Learner.feed(b, now)
+            Health.feed(b, now)
+        }
+        if (now - lastAlert > 5000) {
+            lastAlert = now
+            val al = Health.alerts()
+            alertView.text = al.joinToString("\n") + if (al.isNotEmpty()) "\n(toque para ver a aba Aprender)" else ""
+            alertView.visibility = if (al.isEmpty()) View.GONE else View.VISIBLE
+        }
+        if (pages[5].visibility == View.VISIBLE) learn.refresh()
         LambdaWatch.feed(b)
         LambdaWatch.feedMix(b)
         // valores calculados (consumo) mostram "--" quando faltam dados, em vez do último valor

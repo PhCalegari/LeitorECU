@@ -86,6 +86,19 @@ Com o corte de injeção ativo, o consumo vai a zero. O km/L usa a velocidade do
 A vazão real do injetor do D4D não é publicada, então o app começa com 110 cc/min e 0,8 ms de tempo morto e se corrige pelo **abastecimento**: em **Painel → Consumo**, zere a viagem com o tanque cheio e, ao completar de novo, digite os litros que entraram. O app ajusta o fator automaticamente.
 Medidores disponíveis: consumo (L/h), consumo instantâneo (km/L), média da viagem, combustível gasto e distância.
 
+## Aba Aprender (app Android)
+O app vai aprendendo sozinho, sem IA: compara a central com coisas que ele já sabe.
+
+**Ensinar o app (eventos):** com o motor ligado e o carro parado, toque em um item (Ar-condicionado, Ventoinha, Farol, Freio, Vidro térmico, Embreagem), espere a contagem e, no "AGORA", ligue ou desligue aquilo. O app compara os bits e bytes da central 3 s antes e 2–6 s depois e guarda o que mudou junto. Depois de 2 ou mais vezes (em pelo menos 75 % delas) o bit fica "aprendido" e pode ser mostrado no Painel.
+
+**Ventoinha × água:** a temperatura da água quando a ventoinha liga (marcada à mão, pelo bit aprendido ou estimada por uma queda da bateria em lenta) é comparada com os 99 °C esperados, para conferir a escala da água.
+
+**Partida a frio:** se o carro ficou parado 3 h ou mais, a primeira leitura compara a água com o ar (os dois devem estar na temperatura ambiente).
+
+**Adaptações:** bytes que ficam fixos durante a viagem mas mudam de um dia para outro (prováveis valores aprendidos pela central) são listados com o histórico dos últimos 30 dias.
+
+**Saúde do motor:** o app guarda a mediana de cada viagem (lenta quente, injeção na lenta, correção da mistura, temperatura em uso, bateria com motor ligado, bateria na partida, tempo para esquentar). Depois de 3 viagens ele avisa no Painel quando algo foge do normal do seu carro, com as causas mais prováveis. Use "Zerar o normal" depois de um conserto. O modo Demo não ensina nada ao app.
+
 ## Conexão automática (app Android)
 Com a opção **Conectar automaticamente** marcada (padrão), o app conecta sozinho ao abrir, procurando o último adaptador usado. Se o carro estiver desligado, tenta de novo a cada ~10 s; se a conexão cair, fica tentando até o carro voltar. Toque em **Desconectar** para parar as tentativas. Na primeira vez é preciso tocar em **Conectar** para liberar a permissão de Bluetooth.
 

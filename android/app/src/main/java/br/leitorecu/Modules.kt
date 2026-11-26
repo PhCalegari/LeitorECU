@@ -139,10 +139,19 @@ object Modules {
     ) { b -> b[lid]?.let { if (i < it.size) (it[i].toInt() and 0xFF).toDouble() else null } }
 
     private val RAW = Regex("raw:([0-9A-F]{2}):(\\d+)")
+    private val BIT = Regex("bit:([0-9A-F]{2}):(\\d+):(\\d):(.+)")
+
+    /** Bit aprendido na aba Aprender (ex.: ar-condicionado ligado). */
+    fun bit(lid: Int, i: Int, bit: Int, name: String) = Module(
+        "bit:%02X:%d:%d:%s".format(lid, i, bit, name), name, "21%02X byte %d bit %d (aprendido)".format(lid, i, bit),
+        0, true, false, text = { if (it > 0) "1" else "0" }
+    ) { b -> b[lid]?.let { if (i < it.size) ((it[i].toInt() shr bit) and 1).toDouble() else null } }
 
     fun byKey(k: String): Module? =
         known.firstOrNull { it.key == k } ?: RAW.matchEntire(k)?.let {
             raw(it.groupValues[1].toInt(16), it.groupValues[2].toInt())
+        } ?: BIT.matchEntire(k)?.let {
+            bit(it.groupValues[1].toInt(16), it.groupValues[2].toInt(), it.groupValues[3].toInt(), it.groupValues[4])
         }
 }
 
