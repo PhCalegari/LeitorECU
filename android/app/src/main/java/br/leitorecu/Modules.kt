@@ -114,7 +114,7 @@ object Modules {
         Module("vel_ecu", "Velocidade (central)", "km/h", 0, true, false) { b -> SpeedMap.read(b) },
         // consumo (estimado pelo tempo de injeção; fica "provisório" até calibrar no abastecimento)
         Module("cons_lh", "Consumo", "L/h", 2, true, false) { b -> Fuel.lh(b) },
-        Module("cons_kml", "Consumo instantâneo", "km/L (GPS)", 1, true, false) { b -> Fuel.kml(b) },
+        Module("cons_kml", "Consumo agora", "km/L (GPS)", 1, true, false) { b -> Fuel.kml(b) },
         Module("avg5_kml", "Consumo médio (5 min)", "km/L", 1, true, false) { _ -> Fuel.avg5Kml() },
         Module("avg5_lh", "Consumo médio (5 min)", "L/h", 2, true, false) { _ -> Fuel.avg5Lh() },
         Module("trip_kml", "Média da viagem", "km/L", 1, true, false) { _ -> Fuel.avgKml() },

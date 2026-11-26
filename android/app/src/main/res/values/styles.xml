@@ -1,22 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Painel de instrumentos: fundo escuro, ponteiro laranja para o que é interativo -->
-    <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
-        <item name="android:colorPrimary">#1C242C</item>
-        <item name="android:colorPrimaryDark">#151B21</item>
-        <item name="android:colorAccent">#FF7A1A</item>
-        <item name="android:windowBackground">#151B21</item>
-        <item name="android:statusBarColor">#151B21</item>
-        <item name="android:navigationBarColor">#151B21</item>
-        <item name="android:textColorPrimary">#E8EDF2</item>
-        <item name="android:textColorSecondary">#8C99A6</item>
-        <item name="android:colorControlNormal">#8C99A6</item>
+    <!-- Tema claro de ferramenta: fundo branco, barra cinza-clara, azul para o que é interativo -->
+    <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">#F1F3F5</item>
+        <item name="android:colorPrimaryDark">#F1F3F5</item>
+        <item name="android:colorAccent">#1F6FEB</item>
+        <item name="android:windowBackground">#FFFFFF</item>
+        <item name="android:statusBarColor">#F1F3F5</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:textColorPrimary">#14181C</item>
+        <item name="android:textColorSecondary">#5E6A76</item>
+        <item name="android:colorControlNormal">#5E6A76</item>
         <item name="android:alertDialogTheme">@style/AppDialog</item>
     </style>
-    <style name="AppDialog" parent="@android:style/Theme.Material.Dialog.Alert">
-        <item name="android:colorAccent">#FF7A1A</item>
-        <item name="android:colorBackground">#1C242C</item>
-        <item name="android:textColorPrimary">#E8EDF2</item>
-        <item name="android:textColorSecondary">#8C99A6</item>
+    <style name="AppDialog" parent="@android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:colorAccent">#1F6FEB</item>
+        <item name="android:colorBackground">#FFFFFF</item>
+        <item name="android:textColorPrimary">#14181C</item>
+        <item name="android:textColorSecondary">#5E6A76</item>
+    </style>
+    <!-- Modo noturno: fundo preto (não ofusca à noite), barra cinza-escura, azul para o que é interativo -->
+    <style name="AppThemeDark" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:colorPrimary">#2A2F35</item>
+        <item name="android:colorPrimaryDark">#2A2F35</item>
+        <item name="android:colorAccent">#2F7DF6</item>
+        <item name="android:windowBackground">#000000</item>
+        <item name="android:statusBarColor">#2A2F35</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:textColorPrimary">#F1F4F7</item>
+        <item name="android:textColorSecondary">#8893A0</item>
+        <item name="android:colorControlNormal">#8893A0</item>
+        <item name="android:alertDialogTheme">@style/AppDialogDark</item>
+    </style>
+    <style name="AppDialogDark" parent="@android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">#2F7DF6</item>
+        <item name="android:colorBackground">#14181C</item>
+        <item name="android:textColorPrimary">#F1F4F7</item>
+        <item name="android:textColorSecondary">#8893A0</item>
     </style>
 </resources>

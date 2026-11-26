@@ -102,6 +102,14 @@ Bytes que já mostraram mais de 8 valores diferentes são tratados como valores 
 
 **Saúde do motor:** o app guarda a mediana de cada viagem (lenta quente, injeção na lenta, correção da mistura, temperatura em uso, bateria com motor ligado, bateria na partida, tempo para esquentar). Depois de 3 viagens ele avisa no Painel quando algo foge do normal do seu carro, com as causas mais prováveis. Use "Zerar o normal" depois de um conserto. O modo Demo não ensina nada ao app.
 
+## Mapas de ponto e de injeção (app Android, aba Gráfico)
+Tabela no formato dos editores de calibração: rotação nas linhas (500, 650, 750, 900, 1150 … 6400, crescendo para baixo) e pressão do coletor nas colunas (200 … 1000 mbar). Cada célula mostra a média do avanço (ou do tempo de injeção) que a central está usando de verdade naquela faixa, com 2 casas e cores suaves (verde-água = pouco, salmão/vermelho = muito). Traços vermelhos nos cabeçalhos e a célula vermelha mostram onde o motor está agora. Células sem leitura, mas com leituras dos dois lados, aparecem estimadas em itálico e mais claras.
+
+É **só leitura**: o mapa é montado com o que a central faz enquanto o carro roda. O app não grava nada na central (remap/reprogramação não é feito: o adaptador clone por Bluetooth não regrava a SIM 32 com segurança e mexer no ponto pode causar detonação).
+
+## Visual e modo diurno/noturno (app Android)
+Visual de ferramenta de injeção: tudo reto, Painel em blocos pintados pela escala de calor do próprio valor (azul baixo → vermelho alto), barra superior com status e menu ⋮ (Conectar, Demo, Pausar, Personalizar painel, Consumo, Conectar sozinho, Modo diurno/noturno). Modos: **Automático** (segue o modo escuro do celular), **Diurno** (branco) e **Noturno** (preto). A troca não derruba a conexão com o carro.
+
 ## Conexão automática (app Android)
 Com a opção **Conectar automaticamente** marcada (padrão), o app conecta sozinho ao abrir, procurando o último adaptador usado. Se o carro estiver desligado, tenta de novo a cada ~10 s; se a conexão cair, fica tentando até o carro voltar. Toque em **Desconectar** para parar as tentativas. Na primeira vez é preciso tocar em **Conectar** para liberar a permissão de Bluetooth.
 

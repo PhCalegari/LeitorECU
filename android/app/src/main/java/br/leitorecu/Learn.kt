@@ -566,7 +566,7 @@ class LearnPage(
     private val fanTv: TextView
     private val coldTv: TextView
     private val slowTv: TextView
-    private val healthTv: TextView
+    private val healthRows = HashMap<String, Pair<TextView, TextView>>()   // valor, linha do normal
     private val alertTv: TextView
     private var counting = false
     private var lastRefresh = 0L
@@ -581,8 +581,21 @@ class LearnPage(
         h.addView(tv("Comparado com o normal do seu carro, aprendido nas últimas viagens.", 12f, muted))
         alertTv = tv("", 15f, warn, true).apply { setPadding(dp(2), dp(8), dp(2), dp(4)) }
         h.addView(alertTv)
-        healthTv = tv("", 13f).apply { Ui.num(this, false); textSize = 14f; setPadding(dp(2), dp(8), dp(2), dp(8)) }
-        h.addView(healthTv)
+        // tabela: nome e situação à esquerda, valor de agora à direita (antes as linhas quebravam no meio)
+        for ((i, m) in Health.METRICS.withIndex()) {
+            if (i > 0) h.addView(View(act).apply { setBackgroundColor(Ui.LINE) },
+                LinearLayout.LayoutParams(-1, maxOf(1, dp(1) * 3 / 4)))
+            val r = LinearLayout(act).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(8), 0, dp(8)) }
+            val left = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
+            left.addView(tv(m.name, 14f, Ui.TEXT))
+            val normal = tv("", 12f, muted).apply { Ui.num(this, false); textSize = 13f }
+            left.addView(normal)
+            r.addView(left, LinearLayout.LayoutParams(0, -2, 1f))
+            val value = tv("--", 22f, Ui.TEXT).apply { Ui.num(this); gravity = Gravity.END }
+            r.addView(value, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+            h.addView(r)
+            healthRows[m.key] = value to normal
+        }
         h.addView(tv("Depois de 3 viagens o app passa a avisar quando algo foge do normal. " +
                 "Depois de um conserto (vela, termostática…), zere para ele reaprender.", 12f, muted))
         h.addView(quiet("Zerar o normal") { confirm("Apagar o normal aprendido?") { Health.reset(); refresh(true) } },
@@ -692,7 +705,17 @@ class LearnPage(
         val al = Health.alerts()
         alertTv.text = if (al.isEmpty()) "" else al.joinToString("\n")
         alertTv.visibility = if (al.isEmpty()) View.GONE else View.VISIBLE
-        healthTv.text = Health.METRICS.joinToString("\n") { Health.line(it) }
+        for (m in Health.METRICS) {
+            val (value, normal) = healthRows[m.key] ?: continue
+            val cur = Health.current(m); val base = Health.baseline(m); val n = Health.trips(m)
+            val alert = base != null && cur != null && Health.alert(m) != null
+            value.text = cur?.let { String.format(Locale("pt", "BR"), "%.${m.dec}f", it) + " " + m.unit } ?: "--"
+            // cor só com significado: âmbar fora do normal, verde dentro, branco ainda sem comparação
+            value.setTextColor(when { alert -> warn; base != null && cur != null -> green; else -> Ui.TEXT })
+            normal.text = if (base != null)
+                "normal " + String.format(Locale("pt", "BR"), "%.${m.dec}f", base) + " ${m.unit}, $n viagens"
+            else "aprendendo: $n de 3 viagens"
+        }
 
         // só recria a lista quando o conteúdo muda (recriar a cada segundo podia "engolir" o toque no botão)
         val sig = Learner.LABELS.joinToString("|") { l -> "${Learner.events(l)}:" + Learner.cands(l).take(3).joinToString { it.key + it.hits } }

@@ -17,22 +17,92 @@ import android.widget.Button
 import android.widget.TextView
 
 /**
- * Identidade visual: o painel de instrumentos do carro.
- * As cores só aparecem com o significado das luzes do painel (ISO 2575):
- * âmbar = atenção/a confirmar, vermelho = perigo, verde = funcionando. O laranja do ponteiro marca a ação
- * principal e o conta-giros. Números em Roboto Condensed com algarismos tabulares (não "pulam" ao mudar).
+ * Identidade visual: linguagem dos programas de injeção (TuneECU e afins): tudo reto, blocos chapados,
+ * destaque azul e valores coloridos pela escala de calor das tabelas de mapa. Âmbar = a confirmar,
+ * vermelho = perigo, verde = funcionando. Números em Roboto Condensed com algarismos tabulares.
+ * Dois modos: diurno (branco) e noturno (preto, para não ofuscar à noite).
  */
 object Ui {
-    val FACE = Color.parseColor("#151B21")      // fundo (face do painel, escuro para não ofuscar à noite)
-    val SURFACE = Color.parseColor("#1C242C")   // placas e botões
-    val LINE = Color.parseColor("#2A343E")      // divisórias finas
-    val TEXT = Color.parseColor("#E8EDF2")      // texto "retroiluminado"
-    val MUTED = Color.parseColor("#8C99A6")     // rótulos e unidades
-    val NEEDLE = Color.parseColor("#FF7A1A")    // ponteiro: ação principal e conta-giros
-    val AMBER = Color.parseColor("#F2B33D")     // atenção / a confirmar
-    val RED = Color.parseColor("#E5483B")       // perigo / faixa vermelha
-    val GREEN = Color.parseColor("#4CC38A")     // funcionando / conectado
-    val AMBER_BG = Color.parseColor("#33291A")  // fundo de aviso
+    private fun c(s: String) = Color.parseColor(s)
+
+    /** true = modo noturno (preto). Trocar com [setNight] e reconstruir as telas. */
+    var night = false; private set
+
+    var FACE = 0; private set        // fundo
+    var BAR = 0; private set         // barra superior (título + menu)
+    var SURFACE = 0; private set     // células sem cor e placas
+    var LINE = 0; private set        // divisórias finas
+    var TEXT = 0; private set
+    var MUTED = 0; private set
+    var NEEDLE = 0; private set      // destaque: ação principal, aba aberta (azul)
+    var AMBER = 0; private set       // atenção / a confirmar
+    var RED = 0; private set         // perigo / faixa vermelha
+    var GREEN = 0; private set       // funcionando / conectado
+    var AMBER_BG = 0; private set    // fundo de aviso
+    // tons dos botões e detalhes
+    var BTN = 0; private set; var BTN_OFF = 0; private set; var TXT_OFF = 0; private set
+    var RIPPLE = 0; private set; var REDZONE = 0; private set
+
+    fun setNight(on: Boolean) {
+        night = on
+        if (on) {
+            FACE = c("#000000"); BAR = c("#2A2F35"); SURFACE = c("#14181C"); LINE = c("#252C34")
+            TEXT = c("#F1F4F7"); MUTED = c("#8893A0"); NEEDLE = c("#2F7DF6")
+            AMBER = c("#F2B33D"); RED = c("#E5483B"); GREEN = c("#3CCB7F"); AMBER_BG = c("#2E2615")
+            BTN = c("#262D35"); BTN_OFF = c("#1E242B"); TXT_OFF = c("#56616C")
+            RIPPLE = c("#33FFFFFF"); REDZONE = c("#5A2420")
+        } else {
+            FACE = c("#FFFFFF"); BAR = c("#F1F3F5"); SURFACE = c("#EEF1F4"); LINE = c("#D5DBE1")
+            TEXT = c("#14181C"); MUTED = c("#5E6A76"); NEEDLE = c("#1F6FEB")
+            AMBER = c("#B8740A"); RED = c("#D2362B"); GREEN = c("#17944F"); AMBER_BG = c("#FFF1D6")
+            BTN = c("#E3E8ED"); BTN_OFF = c("#E9EDF1"); TXT_OFF = c("#A3ACB5")
+            RIPPLE = c("#26000000"); REDZONE = c("#F5C6C0")
+        }
+    }
+
+    init { setNight(false) }
+
+    // escala de calor das tabelas: azul → ciano → verde → amarelo → vermelho
+    private val HEAT = intArrayOf(
+        Color.parseColor("#3D5AFE"), Color.parseColor("#00B8E6"), Color.parseColor("#2BD46A"),
+        Color.parseColor("#F5E13A"), Color.parseColor("#F0402C"),
+    )
+
+    /** Cor da escala de calor para t de 0 (baixo) a 1 (alto). */
+    fun heat(t: Double): Int {
+        val x = t.coerceIn(0.0, 1.0) * (HEAT.size - 1)
+        val i = x.toInt().coerceAtMost(HEAT.size - 2)
+        val f = (x - i).toFloat()
+        val a = HEAT[i]; val b = HEAT[i + 1]
+        fun ch(s: Int) = (((a shr s) and 0xFF) + (((b shr s) and 0xFF) - ((a shr s) and 0xFF)) * f).toInt()
+        return Color.rgb(ch(16), ch(8), ch(0))
+    }
+
+    // cores suaves das tabelas de calibração (verde-água baixo → verde → amarelo → salmão → vermelho alto)
+    private val MAPHEAT = intArrayOf(
+        Color.parseColor("#7FE3D4"), Color.parseColor("#A9E28C"), Color.parseColor("#DCD983"),
+        Color.parseColor("#F0B08C"), Color.parseColor("#EE8080"),
+    )
+
+    /** Cor de célula de mapa (tons suaves, texto escuro), t de 0 (baixo) a 1 (alto). */
+    fun mapHeat(t: Double): Int {
+        val x = t.coerceIn(0.0, 1.0) * (MAPHEAT.size - 1)
+        val i = x.toInt().coerceAtMost(MAPHEAT.size - 2)
+        val f = (x - i).toFloat()
+        val a = MAPHEAT[i]; val b = MAPHEAT[i + 1]
+        fun ch(s: Int) = (((a shr s) and 0xFF) + (((b shr s) and 0xFF) - ((a shr s) and 0xFF)) * f).toInt()
+        return Color.rgb(ch(16), ch(8), ch(0))
+    }
+
+    /** Faixa típica de cada valor (para colorir pela escala de calor). Sem faixa = branco. */
+    val RANGES: Map<String, Pair<Double, Double>> = mapOf(
+        "rpm" to (600.0 to 6000.0), "map" to (250.0 to 1000.0), "agua" to (20.0 to 105.0),
+        "ar" to (0.0 to 70.0), "pedal" to (14.0 to 100.0), "pedal1" to (14.0 to 100.0), "pedal2" to (14.0 to 100.0),
+        "avanco" to (-5.0 to 40.0), "inj" to (1.0 to 12.0), "lambda" to (0.05 to 0.9), "lambda2" to (0.05 to 0.9),
+        "borb" to (10.0 to 90.0), "rpm_alvo" to (700.0 to 1100.0), "cons_lh" to (0.3 to 10.0),
+    )
+
+    fun heatFor(key: String, v: Double): Int? = RANGES[key]?.let { (a, b) -> heat((v - a) / (b - a)) }
 
     /** Números: condensada, negrito, algarismos de largura fixa. */
     val NUM: Typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
@@ -54,51 +124,63 @@ object Ui {
     }
 
     /** Placa: superfície lisa com cantos discretos (sem sombra). */
-    fun panel(ctx: Context, fill: Int = SURFACE) = shape(fill, dp(ctx, 6f))
+    fun panel(ctx: Context, fill: Int = SURFACE) = shape(fill, 0f)   // reto: nada de cantos arredondados
 
     private fun ripple(ctx: Context, content: Drawable, onDark: Boolean = true) =
-        RippleDrawable(ColorStateList.valueOf(if (onDark) Color.parseColor("#33FFFFFF") else Color.parseColor("#33000000")),
-            content, shape(Color.WHITE, dp(ctx, 6f)))
+        RippleDrawable(ColorStateList.valueOf(RIPPLE), content, shape(Color.WHITE, 0f))
 
     enum class Kind { PRIMARY, GHOST, QUIET }
 
     /** Aplica o estilo a um botão já criado (mantém tamanhos/ações de quem chamou). */
     fun style(b: Button, kind: Kind = Kind.GHOST) {
         val ctx = b.context
-        b.isAllCaps = false
+        b.isAllCaps = true          // botões de ferramenta, como os menus dos programas de injeção
         b.stateListAnimator = null       // sem a "elevação" padrão do Material
         b.typeface = BODY_MED
-        b.letterSpacing = 0f
+        b.letterSpacing = 0.03f
         when (kind) {
             Kind.PRIMARY -> {
-                b.background = ripple(ctx, shape(NEEDLE, dp(ctx, 6f)), onDark = false)
+                // desativado não pode parecer clicável: vira contorno apagado
+                val states = android.graphics.drawable.StateListDrawable().apply {
+                    addState(intArrayOf(-android.R.attr.state_enabled), shape(BTN_OFF, 0f))
+                    addState(intArrayOf(), shape(NEEDLE, 0f))
+                }
+                b.background = ripple(ctx, states, onDark = false)
                 b.setTextColor(ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
-                    intArrayOf(Color.parseColor("#7A4A2A"), Color.parseColor("#1A1208"))))
+                    intArrayOf(TXT_OFF, Color.WHITE)))
             }
             Kind.GHOST -> {
-                b.background = ripple(ctx, shape(SURFACE, dp(ctx, 6f), LINE, dpi(ctx, 1)))
+                b.background = ripple(ctx, shape(BTN, 0f))   // chapado, sem borda
                 b.setTextColor(ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
-                    intArrayOf(Color.parseColor("#56616C"), TEXT)))
+                    intArrayOf(TXT_OFF, TEXT)))
             }
             Kind.QUIET -> {
-                b.background = ripple(ctx, shape(Color.TRANSPARENT, dp(ctx, 6f)))
+                b.background = ripple(ctx, shape(Color.TRANSPARENT, 0f))
                 b.setTextColor(ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
-                    intArrayOf(Color.parseColor("#56616C"), MUTED)))
+                    intArrayOf(TXT_OFF, MUTED)))
             }
         }
     }
 
-    /** Aba: texto; a selecionada fica clara com um traço laranja embaixo (como o ponteiro). */
+    /** Aba do menu (na barra superior): a aberta fica clara com um traço azul embaixo. */
     fun tab(tv: TextView, selected: Boolean) {
         val ctx = tv.context
         tv.setTextColor(if (selected) TEXT else MUTED)
-        tv.typeface = if (selected) BODY_MED else BODY
-        val bar = shape(if (selected) NEEDLE else LINE, 0f)
+        tv.typeface = BODY_MED
+        val bar = shape(if (selected) NEEDLE else Color.TRANSPARENT, 0f)
         val layer = LayerDrawable(arrayOf(bar))
-        val h = if (selected) dpi(ctx, 3) else dpi(ctx, 1)
         layer.setLayerGravity(0, Gravity.BOTTOM or Gravity.FILL_HORIZONTAL)
-        layer.setLayerHeight(0, h)
-        tv.background = RippleDrawable(ColorStateList.valueOf(Color.parseColor("#22FFFFFF")), layer, null)
+        layer.setLayerHeight(0, dpi(ctx, 3))
+        tv.background = RippleDrawable(ColorStateList.valueOf(RIPPLE), layer,
+            shape(Color.WHITE, 0f))
+    }
+
+    /** Fundo da fileira de abas: uma linha fina contínua embaixo de todas. */
+    fun tabRowBackground(ctx: Context): Drawable {
+        val layer = LayerDrawable(arrayOf(shape(LINE, 0f)))
+        layer.setLayerGravity(0, Gravity.BOTTOM or Gravity.FILL_HORIZONTAL)
+        layer.setLayerHeight(0, maxOf(1, dpi(ctx, 1)))
+        return layer
     }
 
     /** Cor da "luz de status" pelo texto da mensagem. */
@@ -116,7 +198,7 @@ object Ui {
 
 /**
  * Conta-giros em barra: escala de 0 a 7.000 rpm com marcas de 1.000 em 1.000 e faixa vermelha a partir de 6.000.
- * O preenchimento é o "ponteiro" laranja; passa a vermelho dentro da faixa.
+ * O preenchimento segue a escala de calor (azul em baixa, vermelho no alto), como as tabelas de mapa.
  */
 class TachView(ctx: Context) : View(ctx) {
     var rpm: Double? = null
@@ -126,7 +208,7 @@ class TachView(ctx: Context) : View(ctx) {
     private val red = 6000.0
     private val d = ctx.resources.displayMetrics.density
     private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Ui.LINE }
-    private val redZone = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#5A2420") }
+    private val redZone = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Ui.REDZONE }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val tick = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 1.5f * d }
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -143,13 +225,17 @@ class TachView(ctx: Context) : View(ctx) {
         val w = width.toFloat()
         val barTop = 2 * d; val barH = 10 * d
         val r = RectF(0f, barTop, w, barTop + barH)
-        c.drawRoundRect(r, 3 * d, 3 * d, track)
+        c.drawRoundRect(r, 0f, 0f, track)
         val xr = (w * red / maxRpm).toFloat()
-        c.drawRoundRect(RectF(xr, barTop, w, barTop + barH), 3 * d, 3 * d, redZone)
+        c.drawRoundRect(RectF(xr, barTop, w, barTop + barH), 0f, 0f, redZone)
         rpm?.let { v ->
             val x = (w * (v.coerceIn(0.0, maxRpm) / maxRpm)).toFloat()
-            fill.color = if (v >= red) Ui.RED else Ui.NEEDLE
-            c.drawRoundRect(RectF(0f, barTop, x.coerceAtLeast(3 * d), barTop + barH), 3 * d, 3 * d, fill)
+            // gradiente fixo na largura toda: a cor da ponta mostra onde está a rotação
+            fill.shader = android.graphics.LinearGradient(0f, 0f, w, 0f,
+                intArrayOf(Ui.heat(0.0), Ui.heat(0.25), Ui.heat(0.5), Ui.heat(0.75), Ui.heat(1.0)), null,
+                android.graphics.Shader.TileMode.CLAMP)
+            c.drawRoundRect(RectF(0f, barTop, x.coerceAtLeast(3 * d), barTop + barH), 0f, 0f, fill)
+            fill.shader = null
         }
         // marcas a cada 1.000 rpm; números 1..7 (x 1000)
         for (k in 1..7) {

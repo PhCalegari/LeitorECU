@@ -64,14 +64,20 @@ class DragPage(
     private fun showEcu() {
         val e = ecuNow()
         val t = e["_t"]
+        // a luz da frente diz se a central responde (verde) ou parou (vermelho); os números ficam em branco
+        fun light(c: Int, s: String): CharSequence {
+            val sp = android.text.SpannableString("●  $s")
+            sp.setSpan(android.text.style.ForegroundColorSpan(c), 0, 1, 0)
+            return sp
+        }
         if (t == null || System.currentTimeMillis() - t > 5000) {
             ecuTv.setTextColor(Ui.RED)
-            ecuTv.text = "⚠ Central sem dados novos – confira a conexão (linha no topo da tela)"
+            ecuTv.text = light(Ui.RED, "Central sem dados novos. Confira a conexão no topo da tela.")
             return
         }
-        ecuTv.setTextColor(Ui.GREEN)
+        ecuTv.setTextColor(Ui.TEXT)
         fun f(k: String, d: Int) = e[k]?.let { String.format(Locale("pt", "BR"), "%.${d}f", it) } ?: "--"
-        ecuTv.text = "Central: ${f("rpm", 0)} rpm • pedal ${f("pedal1", 0)} % • ${f("agua", 0)} °C • inj. ${f("inj", 1)} ms"
+        ecuTv.text = light(Ui.GREEN, "${f("rpm", 0)} rpm   pedal ${f("pedal1", 0)} %   ${f("agua", 0)} °C   injeção ${f("inj", 1)} ms")
     }
 
     private enum class St { OFF, WAIT_STOP, ARMED, RUNNING, DONE }
@@ -163,8 +169,8 @@ class DragPage(
         btnGps = btn("Ativar GPS") { toggleGps() }.apply { Ui.style(this, Ui.Kind.PRIMARY) }
         btnRec = btn("● Gravar sessão") { toggleRec() }
         col.addView(row(btnGps, btnRec))
-        statusTv = tv("Toque em “Ativar GPS”. Conecte também na central para ter rotação e marcha.", 15f,
-            Ui.AMBER, true).apply { setPadding(dp(4), dp(8), dp(4), dp(4)) }
+        statusTv = tv("Toque em “Ativar GPS” para medir velocidade, marcha e 0–100.", 15f,
+            Ui.AMBER, true).apply { setPadding(dp(2), dp(10), dp(2), dp(4)); gravity = Gravity.START }
         col.addView(statusTv)
 
         // velocidade + marcha lado a lado, nos algarismos dos mostradores
@@ -178,12 +184,15 @@ class DragPage(
             orientation = LinearLayout.VERTICAL; addView(gearTv, big(gearTv, bigSp)); addView(tv("marcha", 13f, muted))
         }
         col.addView(row(sp, gr))
-        ecuTv = tv("", 15f, Ui.TEXT, true)
+        // textos corridos alinhados à esquerda (centralizados, as linhas quebradas ficavam tortas)
+        ecuTv = tv("", 15f, Ui.TEXT).apply {
+            gravity = Gravity.START; Ui.num(this, false); textSize = 16f; setPadding(dp(2), dp(10), dp(2), dp(6))
+        }
         col.addView(ecuTv)
         ui.post(ecuTick)
-        gearInfo = tv("", 12f, muted)
+        gearInfo = tv("", 13f, muted).apply { gravity = Gravity.START; setPadding(dp(2), dp(2), dp(2), dp(2)) }
         col.addView(gearInfo)
-        speedFindTv = tv("", 12f, Ui.AMBER)
+        speedFindTv = tv("", 13f, Ui.AMBER).apply { gravity = Gravity.START; setPadding(dp(2), dp(2), dp(2), dp(6)) }
         col.addView(speedFindTv)
         col.addView(row(btn("Procurar velocidade de novo") {
             SpeedMap.clear(prefsCfg); finder.reset(); showSpeedFind()
@@ -202,7 +211,7 @@ class DragPage(
             }
         }.toTypedArray()))
         col.addView(row(btn("Nova medição 0–100") { rearm() }))
-        gpsTv = tv("", 12f, muted)
+        gpsTv = tv("", 12f, muted).apply { gravity = Gravity.START; setPadding(dp(2), dp(4), dp(2), 0) }
         col.addView(gpsTv)
 
         // gráfico por marcha

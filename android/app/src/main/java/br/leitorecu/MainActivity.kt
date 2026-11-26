@@ -52,15 +52,58 @@ import java.util.concurrent.TimeUnit
 @SuppressLint("MissingPermission", "SetTextI18n")
 class MainActivity : Activity() {
 
-    // ---------- cores ----------
-    // ---------- cores (ver Ui.kt: painel de instrumentos) ----------
-    private val BG = Ui.FACE
-    private val CARD = Ui.SURFACE
-    private val WARN = Ui.AMBER
-    private val MUTED = Ui.MUTED
-    private val C1 = Color.parseColor("#5AB4F0")   // série 1 do gráfico
-    private val C2 = Ui.NEEDLE                     // série 2 do gráfico
+    // ---------- cores (ver Ui.kt) ----------
+    // cores lidas na hora (mudam com o modo diurno/noturno)
+    private val BG get() = Ui.FACE
+    private val CARD get() = Ui.SURFACE
+    private val WARN get() = Ui.AMBER
+    private val MUTED get() = Ui.MUTED
+    private val C1 get() = Color.parseColor(if (Ui.night) "#00B8E6" else "#0091C2")   // série 1 do gráfico
+    private val C2 get() = Color.parseColor(if (Ui.night) "#F5E13A" else "#D6336C")   // série 2 do gráfico
     private var tach: TachView? = null
+    private lateinit var connBox: LinearLayout
+    private lateinit var discSmall: Button
+
+    /** Conectado: esconde os botões de conexão (mais espaço para os medidores no carro; o resto fica no menu ⋮). */
+    private fun setConnectedUi(on: Boolean) {
+        connBox.visibility = if (on) View.GONE else View.VISIBLE
+    }
+
+    /** Menu ⋮ da barra superior: ações de conexão e do Painel, como o menu dos programas de injeção. */
+    private fun showMenu(anchor: View) {
+        val pm = android.widget.PopupMenu(this, anchor)
+        val m = pm.menu
+        val connected = elm != null
+        if (!connected && !autoActive) {
+            m.add(0, 1, 0, "Conectar")
+            m.add(0, 2, 1, "Demo (dados simulados)")
+        } else m.add(0, 3, 0, if (connected) "Desconectar" else "Parar tentativas")
+        if (connected) m.add(0, 4, 2, if (monitoring) "Pausar leitura" else "Retomar leitura")
+        m.add(0, 5, 3, "Personalizar painel")
+        m.add(0, 6, 4, "Consumo e calibração")
+        m.add(0, 7, 5, "Conectar sozinho").apply { isCheckable = true; isChecked = autoPref() }
+        m.add(0, 8, 6, "Modo diurno / noturno")
+        pm.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                1 -> askPermissionsAndConnect()
+                2 -> connect(demo = true)
+                3 -> disconnect()
+                4 -> { monitoring = !monitoring; btnPause.text = if (monitoring) "Pausar" else "Retomar" }
+                5 -> { showPage(0); showCustomize() }
+                6 -> showFuel()
+                7 -> {
+                    val on = !autoPref()
+                    getSharedPreferences("cfg", 0).edit().putBoolean("auto", on).apply()
+                    // ligar já conectado (no carro, não no Demo) também passa a reconectar sozinho se cair
+                    autoActive = on && elm != null && link !is DemoLink
+                    Toast.makeText(this, if (on) "Vai conectar sozinho" else "Conexão só pelo botão", Toast.LENGTH_SHORT).show()
+                }
+                8 -> chooseTheme()
+            }
+            true
+        }
+        pm.show()
+    }
 
     private val ui = Handler(Looper.getMainLooper())
     private val br = Locale("pt", "BR")
@@ -122,9 +165,68 @@ class MainActivity : Activity() {
     @Volatile private var latest: Map<String, Double> = emptyMap()
 
     // =====================================================================
+    // ---------- modo diurno / noturno ----------
+    /** "auto" (segue o modo escuro do celular), "day" ou "night". */
+    private fun themePref() = getSharedPreferences("cfg", 0).getString("theme", "auto") ?: "auto"
+
+    private fun wantNight() = when (themePref()) {
+        "night" -> true
+        "day" -> false
+        else -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+    }
+
+    private fun applyTheme() {
+        val n = wantNight()
+        Ui.setNight(n)
+        setTheme(if (n) R.style.AppThemeDark else R.style.AppTheme)
+        window.statusBarColor = Ui.BAR
+        window.navigationBarColor = Ui.FACE
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = if (n) 0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+    }
+
+    /** Tema certo já antes do super.onCreate (evita piscar o tema errado ao abrir). */
+    private fun applyThemeEarly() {
+        Ui.setNight(wantNight())
+        setTheme(if (Ui.night) R.style.AppThemeDark else R.style.AppTheme)
+    }
+
+    private var curPage = 0
+    private var lastStatus = "Desconectado"
+
+    /** Refaz as telas com as cores novas sem mexer na conexão com o carro. */
+    private fun rebuildUi() {
+        val page = curPage
+        try { drag.stopGps() } catch (_: Exception) {}
+        buildUi()
+        showPage(page)
+        val connected = elm != null
+        setConnectedUi(connected)
+        btnConnect.isEnabled = !connected && !autoActive
+        btnDemo.isEnabled = !connected && !autoActive
+        btnDisc.isEnabled = connected || autoActive
+        btnPause.isEnabled = connected
+        status.text = statusText(lastStatus)
+    }
+
+    private fun chooseTheme() {
+        val keys = listOf("auto", "day", "night")
+        val names = arrayOf("Automático (segue o modo escuro do celular)", "Diurno (claro)", "Noturno (escuro)")
+        AlertDialog.Builder(this).setTitle("Modo diurno / noturno")
+            .setSingleChoiceItems(names, keys.indexOf(themePref()).coerceAtLeast(0)) { d, i ->
+                getSharedPreferences("cfg", 0).edit().putString("theme", keys[i]).apply()
+                d.dismiss()
+                if (wantNight() != Ui.night) { applyTheme(); rebuildUi() }
+            }.setNegativeButton("Cancelar", null).show()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        applyThemeEarly()
         super.onCreate(savedInstanceState)
+        applyTheme()
         Fuel.init(this)
+        Maps.init(this)
         Learner.init(this)
         Health.init(this)
         SpeedMap.load(getSharedPreferences("cfg", 0))
@@ -190,6 +292,8 @@ class MainActivity : Activity() {
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
+        // no automático, o celular mudou para escuro/claro: troca as cores sem reiniciar (a conexão continua)
+        if (themePref() == "auto" && wantNight() != Ui.night) { applyTheme(); rebuildUi(); return }
         rebuildDashboard()   // recalcula tamanhos ao girar a tela
     }
 
@@ -202,68 +306,82 @@ class MainActivity : Activity() {
         return sp
     }
 
-    private fun setStatus(s: String) = ui.post { status.text = statusText(s) }
+    private fun setStatus(s: String) = ui.post { lastStatus = s; status.text = statusText(s) }
 
     private fun fmt(v: Double, dec: Int) = String.format(br, "%.${dec}f", v)
 
     private fun buildUi() {
         root = FrameLayout(this).apply { setBackgroundColor(BG) }
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(14), dp(16), dp(8)) }
-        root.addView(col)
+        val outer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(outer)
 
-        // cabeçalho: nome do app na fonte dos mostradores + o carro, sem enfeites
-        val head = LinearLayout(this).apply { gravity = Gravity.BOTTOM }
-        head.addView(text("LeitorECU", 24f, Ui.TEXT).apply { Ui.num(this) })
-        head.addView(text("Clio 1.0 16V, central SIM 32", 13f, MUTED).apply {
-            setPadding(dp(10), 0, 0, dp(3)); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        col.addView(head)
-        status = text("", 14f, Ui.TEXT).apply { setPadding(0, dp(6), 0, dp(10)); text = statusText("Desconectado") }
-        col.addView(status)
-
-        btnConnect = button("Conectar") { askPermissionsAndConnect() }.apply { Ui.style(this, Ui.Kind.PRIMARY) }
-        btnDemo = button("Demo") { connect(demo = true) }.apply { Ui.style(this, Ui.Kind.QUIET) }
-        btnDisc = button("Desconectar") { disconnect() }.apply { isEnabled = false }
-        col.addView(buttonRow(btnConnect, btnDisc, btnDemo))
-        col.addView(CheckBox(this).apply {
-            text = "Conectar sozinho ao abrir e quando a conexão cair"
-            setTextColor(MUTED); textSize = 13f; typeface = Ui.BODY
-            setPadding(dp(4), dp(8), 0, dp(8))
-            isChecked = autoPref()
-            setOnCheckedChangeListener { _, on ->
-                getSharedPreferences("cfg", 0).edit().putBoolean("auto", on).apply()
-                // ligar já conectado (no carro, não no Demo) também passa a reconectar sozinho se cair
-                autoActive = on && elm != null && link !is DemoLink
-            }
+        // barra superior de ferramenta (como TuneECU): ícone, nome, status pequeno e menu ⋮; abas embaixo
+        val appBar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setBackgroundColor(Ui.BAR); setPadding(dp(10), dp(8), 0, 0)
+        }
+        val head = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        head.addView(text("ECU", 12f, Color.WHITE, true).apply {
+            gravity = Gravity.CENTER; setBackgroundColor(Ui.NEEDLE); Ui.num(this)
+        }, LinearLayout.LayoutParams(dp(34), dp(34)))
+        val titles = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), 0, 0, 0) }
+        titles.addView(text("LeitorECU  Clio 1.0 16V", 16f, Ui.TEXT, true).apply {
+            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
         })
+        status = text("", 12f, Ui.TEXT).apply {
+            text = statusText("Desconectado"); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        titles.addView(status)
+        head.addView(titles, LinearLayout.LayoutParams(0, -2, 1f))
+        head.addView(text("⋮", 26f, Ui.TEXT, true).apply {
+            gravity = Gravity.CENTER; isClickable = true; isFocusable = true
+            background = android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(Color.parseColor("#26000000")), null, null)
+            setOnClickListener { showMenu(this) }
+            contentDescription = "Menu"
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        appBar.addView(head)
+        outer.addView(appBar)
 
-        val tabRow = LinearLayout(this).apply { setPadding(0, dp(2), 0, 0) }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        // desconectado: dois botões chapados de ponta a ponta; conectado, somem (o resto fica no menu ⋮)
+        connBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), dp(8), dp(8), 0) }
+        btnConnect = button("Conectar") { askPermissionsAndConnect() }.apply { Ui.style(this, Ui.Kind.PRIMARY) }
+        btnDemo = button("Demo") { connect(demo = true) }
+        btnDisc = button("Parar") { disconnect() }.apply { isEnabled = false }
+        connBox.addView(buttonRow(btnConnect, btnDisc, btnDemo))
+        col.addView(connBox)
+        discSmall = btnDisc
+
+        // menu (abas) dentro da barra superior, em maiúsculas como os menus desses programas
+        val tabRow = LinearLayout(this).apply { setPadding(0, dp(4), dp(8), 0) }
         tabs = listOf("Painel", "Gráfico", "Pista", "Diag.", "Bytes", "Aprender").mapIndexed { i, s ->
             TextView(this).apply {
-                text = s; gravity = Gravity.CENTER; maxLines = 1; textSize = 14f
-                setPadding(dp(2), 0, dp(2), 0)
+                // largura pelo texto + sobra dividida igualmente: as palavras longas ganham mais espaço
+                text = s.uppercase(); gravity = Gravity.CENTER; maxLines = 1; textSize = if (narrow) 12f else 13f
+                letterSpacing = 0.03f
+                setPadding(dp(3), 0, dp(3), 0)
                 isClickable = true; isFocusable = true
                 setOnClickListener { showPage(i) }
-                if (Build.VERSION.SDK_INT >= 26)
-                    setAutoSizeTextTypeUniformWithConfiguration(10, 14, 1, TypedValue.COMPLEX_UNIT_SP)
-                // altura fixa: o texto autoajustável do Android fica instável com altura "wrap_content"
-                tabRow.addView(this, LinearLayout.LayoutParams(0, dp(44), 1f))
+                tabRow.addView(this, LinearLayout.LayoutParams(-2, dp(42), 1f))
             }
         }
-        col.addView(tabRow)
-        col.addView(View(this), LinearLayout.LayoutParams(-1, dp(10)))
+        appBar.addView(tabRow)
+        outer.addView(col, LinearLayout.LayoutParams(-1, 0, 1f))
 
         val content = FrameLayout(this)
-        col.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
+        col.addView(content, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(2) })
         drag = DragPage(this, { latest }, { synchronized(blocks) { HashMap(blocks) } })
         learn = LearnPage(this, { elm != null && monitoring && link !is DemoLink }, { k -> addToDash(k) })
         pages = listOf(buildDashboard(), buildGraph(), drag.view, buildDiag(), buildRaw(), learn.view)
+        // o Painel vai de ponta a ponta (blocos); as outras abas têm margem
+        pages.drop(1).forEach { it.setPadding(dp(12), dp(10), dp(12), dp(8)) }
         pages.forEach { content.addView(it) }
         showPage(0)
         setContentView(root)
     }
 
     private fun showPage(i: Int) {
+        curPage = i
         pages.forEachIndexed { j, v -> v.visibility = if (i == j) View.VISIBLE else View.GONE }
         tabs.forEachIndexed { j, b -> Ui.tab(b, i == j) }
         fastMode = (i == 2)   // aba Pista
@@ -274,34 +392,46 @@ class MainActivity : Activity() {
         val sv = ScrollView(this)
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         sv.addView(col)
-        btnPause = button("Pausar") {
-            monitoring = !monitoring
-            btnPause.text = if (monitoring) "Pausar" else "Retomar"
-        }.apply { isEnabled = false }
-        col.addView(buttonRow(btnPause, button("Personalizar") { showCustomize() }, button("Consumo") { showFuel() }))
-        rate = text("", 12f, MUTED).apply { setPadding(0, dp(6), 0, dp(6)); gravity = Gravity.END; Ui.num(this, false) }
-        col.addView(rate)
-        alertView = text("", 14f, WARN, true).apply {
-            setPadding(dp(12), dp(10), dp(12), dp(10)); background = Ui.panel(this@MainActivity, Ui.AMBER_BG)
+        // pausar agora fica no menu ⋮ (o botão continua existindo só para guardar o estado)
+        btnPause = button("Pausar") {}.apply { isEnabled = false }
+        alertView = text("", 14f, Color.BLACK, true).apply {
+            setPadding(dp(12), dp(10), dp(12), dp(10)); setBackgroundColor(WARN)
             visibility = View.GONE
             setOnClickListener { showPage(5) }
         }
-        col.addView(alertView, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+        col.addView(alertView)
 
-        // placa única dividida por linhas finas, como a face de um painel de instrumentos
-        grid = GridLayout(this).apply {
-            columnCount = 2
-            background = Ui.panel(this@MainActivity, Ui.LINE)
-            clipToOutline = true
-            val hair = maxOf(1, (resources.displayMetrics.density * 0.75f).toInt())
-            setPadding(hair, hair, hair, hair)
-        }
+        // grade de blocos de ponta a ponta; as frestas pretas entre eles fazem a divisão (sem caixas nem bordas)
+        grid = GridLayout(this).apply { columnCount = 2; setBackgroundColor(Ui.FACE) }
         col.addView(grid)
-        col.addView(text("● a confirmar: a posição ou a escala ainda não foi comprovada no carro.\n" +
-                "Byte bruto: valor de 0 a 255 que ainda não tem significado conhecido.",
-            12f, MUTED).apply { setPadding(dp(2), dp(10), dp(2), dp(12)) })
+        rate = text("", 11f, MUTED).apply {
+            setPadding(dp(12), dp(6), dp(12), 0); Ui.num(this, false); visibility = View.GONE
+        }
+        col.addView(rate)
+        col.addView(text("* a confirmar: a posição ou a escala ainda não foi comprovada no carro.  " +
+                "Cor do bloco: escala de calor da faixa normal do valor (azul baixo, vermelho alto).",
+            11f, MUTED).apply { setPadding(dp(12), dp(4), dp(12), dp(12)) })
         rebuildDashboard()
         return sv
+    }
+
+    /** Partes de um bloco do Painel, para pintar pela escala de calor a cada leitura. */
+    private class Tile(val card: LinearLayout, val label: TextView, val value: TextView, val unit: TextView?)
+    private val tiles = HashMap<String, Tile>()
+
+    /** Bloco cheio de cor (como as células do mapa) com texto preto; sem faixa conhecida fica escuro. */
+    private fun paintTile(key: String, v: Double?) {
+        val t = tiles[key] ?: return
+        val c = if (v != null && key != "rpm") Ui.heatFor(key, v) else null
+        if (c != null) {
+            t.card.setBackgroundColor(c)
+            t.value.setTextColor(Color.BLACK)
+            t.label.setTextColor(Color.argb(190, 0, 0, 0)); t.unit?.setTextColor(Color.argb(170, 0, 0, 0))
+        } else {
+            t.card.setBackgroundColor(CARD)
+            t.value.setTextColor(Ui.TEXT)   // no claro o número fica escuro; a cor da rotação está no conta-giros
+            t.label.setTextColor(MUTED); t.unit?.setTextColor(MUTED)
+        }
     }
 
     /** Adiciona um medidor ao Painel (ex.: bit aprendido na aba Aprender). */
@@ -315,8 +445,9 @@ class MainActivity : Activity() {
     private fun rebuildDashboard() {
         grid.removeAllViews()
         valueViews.clear()
+        tiles.clear()
         tach = null
-        val hair = maxOf(1, (resources.displayMetrics.density * 0.75f).toInt())
+        val hair = maxOf(1, resources.displayMetrics.density.toInt())   // fresta preta de ~2 px entre os blocos
         fun cellLp(span: Int) = GridLayout.LayoutParams(
             GridLayout.spec(GridLayout.UNDEFINED, GridLayout.FILL, 1f),
             GridLayout.spec(GridLayout.UNDEFINED, span, GridLayout.FILL, 1f)
@@ -330,31 +461,29 @@ class MainActivity : Activity() {
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setBackgroundColor(CARD)
-                setPadding(dp(14), dp(10), dp(14), dp(10))
+                setPadding(dp(10), dp(6), dp(10), dp(6))
             }
-            // nome; "a confirmar" vira uma luzinha âmbar no fim do nome (como uma luz de aviso do painel)
-            val name = android.text.SpannableStringBuilder(m.name)
-            if (m.provisional && !m.raw) {
-                val s = name.length
-                name.append("  ●")
-                name.setSpan(android.text.style.ForegroundColorSpan(WARN), s, name.length, 0)
-                name.setSpan(android.text.style.RelativeSizeSpan(0.8f), s, name.length, 0)
+            // rótulo curto em maiúsculas, como nas colunas dos programas de injeção; "*" = a confirmar
+            val nm = (if (cfg.key == "rpm") "${m.name} (rpm)" else m.name) + if (m.provisional && !m.raw) " *" else ""
+            val label = text(nm.uppercase(), if (cfg.big) 12f else 11f, MUTED, true).apply {
+                maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; letterSpacing = 0.02f
             }
-            card.addView(text("", if (cfg.big) 15f else 13f, MUTED).apply {
-                text = name; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
-            })
-            val maxSp = if (cfg.big) (if (narrow) 52 else 60) else (if (narrow) 28 else 32)
+            card.addView(label)
+            val maxSp = if (cfg.big) (if (narrow) 56 else 64) else (if (narrow) 34 else 38)
             val v = text("--", maxSp.toFloat(), Ui.TEXT).apply { Ui.num(this) }
             card.addView(v, fitText(v, maxSp))
             if (cfg.key == "rpm") {
-                // o elemento marcante: conta-giros com a faixa vermelha
+                // conta-giros com o gradiente da escala de calor e a faixa vermelha
                 val t = TachView(this)
                 card.addView(t, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2); bottomMargin = dp(2) })
                 tach = t
             }
-            val unit = if (m.raw) "byte bruto (0–255)" else m.unit
-            card.addView(text(unit, 12f, MUTED).apply { maxLines = 2 })
+            val unitTv = if (cfg.key != "rpm")
+                text(if (m.raw) "byte bruto 0–255" else m.unit, 11f, MUTED).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+            else null
+            unitTv?.let { card.addView(it) }
             valueViews[cfg.key] = v
+            tiles[cfg.key] = Tile(card, label, v, unitTv)
             if (cfg.big) {
                 closeRow()
                 grid.addView(card, cellLp(2))
@@ -365,7 +494,7 @@ class MainActivity : Activity() {
             }
         }
         closeRow()
-        if (dash.isEmpty()) grid.addView(text("O Painel está vazio. Toque em Personalizar para escolher os medidores.", 14f, MUTED)
+        if (dash.isEmpty()) grid.addView(text("O Painel está vazio. Abra o menu ⋮ e toque em Personalizar painel.", 14f, MUTED)
             .apply { setBackgroundColor(CARD); setPadding(dp(14), dp(14), dp(14), dp(14)) },
             GridLayout.LayoutParams(GridLayout.spec(0), GridLayout.spec(0, 2, 1f)).apply { width = 0 })
     }
@@ -418,7 +547,7 @@ class MainActivity : Activity() {
                 r.addView(button("▼") { if (i < all.size - 1) { all.add(i + 1, all.removeAt(i)); render() } }, LinearLayout.LayoutParams(dp(52), -2))
                 item.addView(r, LinearLayout.LayoutParams(-1, -2))
                 list.addView(item)
-                list.addView(View(this).apply { setBackgroundColor(Color.parseColor("#33FFFFFF")) }, LinearLayout.LayoutParams(-1, 1))
+                list.addView(View(this).apply { setBackgroundColor(Ui.LINE) }, LinearLayout.LayoutParams(-1, 1))
             }
         }
         render()
@@ -484,8 +613,45 @@ class MainActivity : Activity() {
     private fun graphCandidates(): List<String> =
         (Modules.known.map { it.key } + dash.map { it.key }).distinct()
 
+    private lateinit var mapView: MapView
+    private lateinit var mapInfo: TextView
+    private var graphMode = 0          // 0 = linhas, 1 = mapa de ponto, 2 = mapa de injeção
+
     private fun buildGraph(): View {
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val outer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        // seletor: linhas no tempo ou mapas observados (tabela rotação × pressão, como nos programas de injeção)
+        val modes = listOf("Linhas", "Ponto", "Injeção")   // curtos: em maiúsculas os nomes longos cortavam
+        lateinit var modeBtns: List<Button>
+        val lines = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val mapBox = ScrollView(this)
+        fun setMode(m: Int) {
+            graphMode = m
+            modeBtns.forEachIndexed { i, b -> Ui.style(b, if (i == m) Ui.Kind.PRIMARY else Ui.Kind.GHOST) }
+            lines.visibility = if (m == 0) View.VISIBLE else View.GONE
+            mapBox.visibility = if (m == 0) View.GONE else View.VISIBLE
+            if (m > 0) drawMap()
+        }
+        modeBtns = modes.mapIndexed { i, s -> button(s) { setMode(i) }.apply { textSize = 12f } }
+        outer.addView(buttonRow(*modeBtns.toTypedArray()))
+        val frame = FrameLayout(this)
+        outer.addView(frame, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(8) })
+        frame.addView(lines)
+
+        val mc = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        mapBox.addView(mc)
+        mapView = MapView(this)
+        mc.addView(text("Pressão do coletor (mbar) →", 12f, MUTED).apply { gravity = Gravity.END; setPadding(0, 0, dp(2), dp(4)) })
+        mc.addView(mapView, LinearLayout.LayoutParams(-1, -2))
+        mapInfo = text("", 12f, MUTED).apply { setPadding(dp(2), dp(10), dp(2), dp(6)); setLineSpacing(0f, 1.2f) }
+        mc.addView(mapInfo)
+        mc.addView(button("Zerar mapas") {
+            AlertDialog.Builder(this).setMessage("Apagar os mapas observados até agora?")
+                .setPositiveButton("Apagar") { _, _ -> Maps.clear(); drawMap() }.setNegativeButton("Cancelar", null).show()
+        }.apply { Ui.style(this, Ui.Kind.QUIET); gravity = Gravity.CENTER_VERTICAL or Gravity.START },
+            LinearLayout.LayoutParams(-2, dp(40)))
+        frame.addView(mapBox)
+
+        val col = lines
         val r = LinearLayout(this)
         spin1 = Spinner(this); spin2 = Spinner(this)
         r.addView(spin1, LinearLayout.LayoutParams(0, -2, 1f))
@@ -500,10 +666,24 @@ class MainActivity : Activity() {
         graph = GraphView(this)
         mark(graph.windowSec)
         col.addView(graph, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(10) })
-        col.addView(text("Azul = 1º valor, laranja = 2º. Cada linha tem sua própria escala.", 12f, MUTED)
+        col.addView(text("Azul = 1º valor, magenta = 2º. Cada linha tem sua própria escala.", 12f, MUTED)
             .apply { setPadding(dp(4), dp(6), dp(4), dp(4)) })
         refreshGraphChoices()
-        return col
+        setMode(0)
+        return outer
+    }
+
+    /** Atualiza a tabela do mapa escolhido (ponto ou injeção). */
+    private fun drawMap() {
+        if (!::mapView.isInitialized || graphMode == 0) return
+        val g = Maps.active()[graphMode - 1]
+        if (mapView.grid !== g) mapView.grid = g else mapView.invalidate()
+        mapInfo.text = "${g.title}: média do que a central está usando (${g.unit}) em cada faixa de rotação × pressão " +
+                "do coletor. ${g.filled()} de ${g.rows * g.cols} células preenchidas; cada uma precisa de 3 leituras. " +
+                "A célula vermelha é a de agora; os traços vermelhos nos cabeçalhos mostram a rotação e a pressão. " +
+                "Números em itálico, mais claros, são estimados entre células lidas.\n" +
+                "Só leitura: o app não grava nada na central." +
+                if (Maps.usingDemo) "\nDemo: mapa simulado, não é salvo." else ""
     }
 
     private fun refreshGraphChoices() {
@@ -548,15 +728,15 @@ class MainActivity : Activity() {
         // "Apagar" é a ação que não tem volta: texto vermelho
         val clear = button("Apagar") { confirmClear() }.apply {
             setTextColor(android.content.res.ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
-                intArrayOf(Color.parseColor("#56616C"), Ui.RED)))
+                intArrayOf(Color.parseColor("#A3ACB5"), Ui.RED)))
         }
         col.addView(buttonRow(button("Ler códigos") { readDtcs("03") }, button("Pendentes") { readDtcs("07") }, clear))
-        diagOut = text("Conecte e toque em “Ler códigos”.", 15f).apply {
+        diagOut = text("Toque em “Ler códigos” para ver as falhas guardadas na central.", 15f).apply {
             background = rounded(CARD); setPadding(dp(12), dp(12), dp(12), dp(12))
         }
         col.addView(diagOut, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         col.addView(text("Central", 13f, MUTED).apply { setPadding(dp(4), dp(14), 0, dp(4)) })
-        col.addView(button("Ler informações completas da central") { readEcuInfo() })
+        col.addView(button("Ler informações completas da central") { readEcuInfo() }, LinearLayout.LayoutParams(-1, dp(44)).apply { bottomMargin = dp(8) })
         identView = text("--", 13f).apply {
             background = rounded(CARD); setPadding(dp(12), dp(12), dp(12), dp(12)); setTextIsSelectable(true)
         }
@@ -683,13 +863,13 @@ class MainActivity : Activity() {
                 try { link?.close() } catch (_: Exception) {}
                 link = null; elm = null
                 if (!autoActive || demo) {
-                    ui.post { btnConnect.isEnabled = true; btnDemo.isEnabled = true; btnDisc.isEnabled = false }
+                    ui.post { btnConnect.isEnabled = true; btnDemo.isEnabled = true; setConnectedUi(false); btnDisc.isEnabled = false }
                     setStatus("Falha: ${e.message}")
                     return
                 }
                 setStatus("Aguardando o carro (tentativa $n)… ${e.message}\nTentando de novo em 10 s – ou toque em Desconectar.")
                 if (!waitAuto(10_000)) {
-                    ui.post { btnConnect.isEnabled = true; btnDemo.isEnabled = true; btnDisc.isEnabled = false }
+                    ui.post { btnConnect.isEnabled = true; btnDemo.isEnabled = true; setConnectedUi(false); btnDisc.isEnabled = false }
                     setStatus("Conexão automática parada.")
                     return
                 }
@@ -742,7 +922,8 @@ class MainActivity : Activity() {
         setStatus("Lendo identificação e blocos Renault...")
         val id = e.ident()
         lids = RenaultMap.LIDS.filter { e.renaultRead(it) != null }
-        ui.post { identView.text = (id ?: "--") + "\n${e.version}\n${e.protocolName}\n\nToque acima para ler tudo." }
+        // uma informação por linha (antes vinham emendadas com "•")
+        ui.post { identView.text = (id?.replace(" • ", "\n") ?: "--") + "\n\n${e.version}\n${e.protocolName}" }
         misses = 0
     }
 
@@ -751,7 +932,8 @@ class MainActivity : Activity() {
         btnPause.text = "Pausar"
         monitoring = true
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        setStatus("Conectado – ${elm?.protocolName ?: ""}")
+        setConnectedUi(true)
+        setStatus(if (link is DemoLink) "Conectado: Demo, dados simulados" else "Conectado – ${elm?.protocolName ?: ""}")
     }
 
     private fun disconnect() {
@@ -761,7 +943,7 @@ class MainActivity : Activity() {
             try { link?.close() } catch (_: Exception) {}
             link = null; elm = null
             ui.post {
-                btnConnect.isEnabled = true; btnDemo.isEnabled = true
+                btnConnect.isEnabled = true; btnDemo.isEnabled = true; setConnectedUi(false)
                 btnDisc.isEnabled = false; btnPause.isEnabled = false
                 window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
@@ -789,7 +971,7 @@ class MainActivity : Activity() {
                             connectLoop(demo = false)
                         } else {
                             setStatus("Conexão perdida: ${e.message}. Toque em Conectar.")
-                            ui.post { btnConnect.isEnabled = true; btnDemo.isEnabled = true }
+                            ui.post { btnConnect.isEnabled = true; btnDemo.isEnabled = true; setConnectedUi(false) }
                         }
                     }
                 }
@@ -851,6 +1033,7 @@ class MainActivity : Activity() {
             Learner.feed(b, now)
             Health.feed(b, now)
         }
+        Maps.feed(b, isDemo = link is DemoLink)   // mapas observados (o Demo tem os seus, só na memória)
         if (now - lastAlert > 5000) {
             lastAlert = now
             val al = Health.alerts()
@@ -878,11 +1061,12 @@ class MainActivity : Activity() {
             while (h.isNotEmpty() && now - h.first.first > 125_000) h.removeFirst()
             valueViews[k]?.text = m.text?.invoke(v) ?: fmt(v, m.dec)
             if (k == "rpm") tach?.rpm = v
+            paintTile(k, v)   // bloco pintado pela escala de calor, como as células do mapa
         }
         latest = Modules.known.mapNotNull { m -> m.read(b)?.let { m.key to it } }.toMap() +
                 ("_t" to System.currentTimeMillis().toDouble())   // hora da última leitura da central
-        rate.text = "ciclo ${cycleMs} ms"
-        if (pages[1].visibility == View.VISIBLE) drawGraph()
+        rate.text = "ciclo ${cycleMs} ms"; rate.visibility = View.VISIBLE
+        if (pages[1].visibility == View.VISIBLE) { if (graphMode == 0) drawGraph() else drawMap() }
         if (pages[4].visibility == View.VISIBLE) {
             val sb = StringBuilder()
             synchronized(stats) {
