@@ -120,6 +120,17 @@ object Modules {
         Module("trip_kml", "Média da viagem", "km/L", 1, true, false) { _ -> Fuel.avgKml() },
         // estado da sonda dianteira nos últimos ~10 s: 2 = oscilando OK, 1 = rica, 0 = pobre, -1 = parada
         // mistura: média da correção da riqueza (PR035) em 30 s; + = central adicionando combustível
+        // indicador na hora pela sonda dianteira: > 0,45 V rica, < 0,45 V pobre; -1 = corte de injeção
+        Module("mix_now", "Mistura agora", "sonda dianteira", 2, false, false,
+            text = { v -> when { v < 0 -> "CORTE"; v > 0.45 -> "RICA"; else -> "POBRE" } }) { b ->
+            val lam = RenaultMap.SIGNALS.firstOrNull { it.key == "lambda" }?.read(b)
+            val inj = RenaultMap.SIGNALS.firstOrNull { it.key == "st_inj" }?.read(b)
+            when {
+                lam == null -> null
+                inj == 0.0 -> -1.0          // pé fora: a central cortou a injeção, a sonda cai sem a mistura estar "pobre"
+                else -> lam
+            }
+        },
         Module("mistura", "Mistura", "correção média 30 s (+ = central adicionando combustível)", 0, false, false,
             text = { LambdaWatch.mixLabel(it) }) { b -> LambdaWatch.mix(b) },
         Module("lambda_st", "Sonda lambda (estado)", "últimos 12 s, motor quente", 0, false, false,
@@ -164,7 +175,7 @@ object DashConfig {
     fun default(): MutableList<CardCfg> =
         Modules.known.filter {
             it.key !in setOf("pedal1", "pedal2", "st_inj", "st_lenta", "st_pe", "st_fundo", "pedal_aprend", "trip_l", "trip_km",
-                "lambda2", "knock", "avg5_lh")
+                "lambda2", "knock", "avg5_lh", "mix_now")
         }
             .map { CardCfg(it.key, it.key == "rpm") }.toMutableList()
 

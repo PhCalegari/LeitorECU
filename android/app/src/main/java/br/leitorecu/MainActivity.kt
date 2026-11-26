@@ -61,6 +61,35 @@ class MainActivity : Activity() {
     private val C1 get() = Color.parseColor(if (Ui.night) "#00B8E6" else "#0091C2")   // série 1 do gráfico
     private val C2 get() = Color.parseColor(if (Ui.night) "#F5E13A" else "#D6336C")   // série 2 do gráfico
     private var tach: TachView? = null
+    private var mixBar: MixBarView? = null
+
+    /** Bloco da sonda: LEDs + RICA/POBRE/CORTE colorido + média de 30 s da correção da central. */
+    private fun showMixInLambda(v: Double, b: Map<Int, ByteArray>) {
+        val cut = RenaultMap.SIGNALS.firstOrNull { it.key == "st_inj" }?.read(b) == 0.0
+        mixBar?.cut = cut
+        mixBar?.volts = if (cut) null else v
+        val t = tiles["lambda"] ?: return
+        val (word, col) = when {
+            cut -> "CORTE" to MUTED                               // pé fora: sonda cai sem a mistura estar pobre
+            v > 0.45 -> "RICA" to Color.parseColor("#E53935")
+            else -> "POBRE" to Color.parseColor("#2F6BFF")
+        }
+        val m = LambdaWatch.mix(b)
+        val rest = when {
+            cut -> "  pé fora do acelerador"
+            m == null -> "  média: juntando…"
+            m == LambdaWatch.MIX_COLD -> "  motor frio"
+            else -> "  30 s: ${LambdaWatch.mixLabel(m)}"
+        }
+        // etiqueta: texto branco sobre vermelho/azul/cinza, legível sobre o bloco colorido
+        val tag = " $word "
+        val sp = android.text.SpannableString(tag + rest)
+        sp.setSpan(android.text.style.BackgroundColorSpan(if (cut) Color.parseColor("#6B7380") else col), 0, tag.length, 0)
+        sp.setSpan(android.text.style.ForegroundColorSpan(Color.WHITE), 0, tag.length, 0)
+        sp.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, tag.length, 0)
+        t.unit?.text = sp
+        mixBar?.onColor = Ui.heatFor("lambda", v) != null
+    }
     private lateinit var connBox: LinearLayout
     private lateinit var discSmall: Button
 
@@ -231,6 +260,12 @@ class MainActivity : Activity() {
         Health.init(this)
         SpeedMap.load(getSharedPreferences("cfg", 0))
         dash = DashConfig.load(this)
+        val cfgP = getSharedPreferences("cfg", 0)
+        // o indicador de mistura agora fica dentro do bloco da sonda: tira o bloco separado de quem já tinha
+        if (!cfgP.getBoolean("mix_now_removed", false)) {
+            if (dash.removeAll { it.key == "mix_now" }) DashConfig.save(this, dash)
+            cfgP.edit().putBoolean("mix_now_removed", true).putBoolean("mix_now_added", true).apply()
+        }
         val gp = getSharedPreferences("cfg", 0)
         graphKeys = arrayOf(gp.getString("g1", "rpm"), gp.getString("g2", "lambda"))
         buildUi()
@@ -447,6 +482,7 @@ class MainActivity : Activity() {
         valueViews.clear()
         tiles.clear()
         tach = null
+        mixBar = null
         val hair = maxOf(1, resources.displayMetrics.density.toInt())   // fresta preta de ~2 px entre os blocos
         fun cellLp(span: Int) = GridLayout.LayoutParams(
             GridLayout.spec(GridLayout.UNDEFINED, GridLayout.FILL, 1f),
@@ -477,6 +513,12 @@ class MainActivity : Activity() {
                 val t = TachView(this)
                 card.addView(t, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2); bottomMargin = dp(2) })
                 tach = t
+            }
+            if (cfg.key == "lambda") {
+                // dentro do bloco da sonda: LEDs pobre (azul) à esquerda, rica (vermelho) à direita, ideal no meio
+                val mb = MixBarView(this, if (cfg.big) 21 else 15)
+                card.addView(mb, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+                mixBar = mb
             }
             val unitTv = if (cfg.key != "rpm")
                 text(if (m.raw) "byte bruto 0–255" else m.unit, 11f, MUTED).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
@@ -1044,7 +1086,7 @@ class MainActivity : Activity() {
         LambdaWatch.feed(b)
         LambdaWatch.feedMix(b)
         // valores calculados (consumo) mostram "--" quando faltam dados, em vez do último valor
-        for (k in listOf("cons_lh", "cons_kml", "trip_kml", "avg5_kml", "avg5_lh", "lambda_st", "mistura")) {
+        for (k in listOf("cons_lh", "cons_kml", "trip_kml", "avg5_kml", "avg5_lh", "lambda_st", "mistura", "mix_now")) {
             val m = Modules.byKey(k) ?: continue
             if (m.read(b) == null) valueViews[k]?.text = "--"
         }
@@ -1062,6 +1104,7 @@ class MainActivity : Activity() {
             valueViews[k]?.text = m.text?.invoke(v) ?: fmt(v, m.dec)
             if (k == "rpm") tach?.rpm = v
             paintTile(k, v)   // bloco pintado pela escala de calor, como as células do mapa
+            if (k == "lambda") showMixInLambda(v, b)
         }
         latest = Modules.known.mapNotNull { m -> m.read(b)?.let { m.key to it } }.toMap() +
                 ("_t" to System.currentTimeMillis().toDouble())   // hora da última leitura da central

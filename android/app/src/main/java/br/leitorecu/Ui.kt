@@ -197,6 +197,71 @@ object Ui {
 }
 
 /**
+ * Indicador de mistura com LEDs, como os medidores de sonda de banda estreita: 0 a 1 V da sonda dianteira.
+ * Esquerda (abaixo de 0,45 V) = POBRE em azul; direita = RICA em vermelho; o centro (0,45 V) é o ideal.
+ * Acende o LED da leitura atual e os vizinhos mais fracos; no corte de injeção ([cut]) fica tudo apagado.
+ */
+class MixBarView(ctx: Context, private val n: Int = 21) : View(ctx) {
+    var volts: Double? = null
+        set(v) { field = v; invalidate() }
+    var cut = false
+        set(v) { field = v; invalidate() }
+    /** O bloco está pintado (escala de calor): rótulos em preto, como o resto do texto do bloco. */
+    var onColor = false
+        set(v) { if (field != v) { field = v; invalidate() } }
+
+    private val d = ctx.resources.displayMetrics.density
+    private val plate = Paint().apply { color = Color.parseColor("#15181C") }
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Ui.BODY_MED; textSize = 11f * ctx.resources.displayMetrics.scaledDensity; letterSpacing = 0.05f
+    }
+    private val lean = Color.parseColor("#2F6BFF")
+    private val ideal = Color.parseColor("#27C26C")
+    private val rich = Color.parseColor("#F0402C")
+
+    override fun onMeasure(w: Int, h: Int) = setMeasuredDimension(MeasureSpec.getSize(w), (46 * d).toInt())
+
+    private fun ledColor(i: Int): Int {
+        val mid = n / 2
+        return when {
+            i == mid -> ideal
+            i < mid -> lean
+            else -> rich
+        }
+    }
+
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat()
+        // módulo de LED: placa escura atrás dos LEDs (fica legível sobre qualquer cor de fundo)
+        val pad = 3 * d
+        val top = 2 * d + pad; val h = 16 * d
+        c.drawRect(0f, top - pad, w, top + h + pad, plate)
+        val gap = (if (n <= 15) 2 else 3) * d
+        val lw = (w - 2 * pad - gap * (n - 1)) / n
+        // LED aceso = posição da tensão (0,0 a 1,0 V em 21 passos de 0,05 V)
+        val lit = volts?.let { ((it.coerceIn(0.0, 1.0)) * (n - 1) + 0.5).toInt() }   // n LEDs de 0 a 1 V
+        for (i in 0 until n) {
+            val x = pad + i * (lw + gap)
+            val dist = if (lit == null || cut) 99 else kotlin.math.abs(i - lit)
+            val col = ledColor(i)
+            p.color = col
+            p.alpha = when (dist) { 0 -> 255; 1 -> 120; else -> 38 }
+            c.drawRect(x, top, x + lw, top + h, p)
+        }
+        p.alpha = 255
+        val y = top + h + pad + 15 * d
+        val dark = Color.argb(200, 0, 0, 0)
+        label.textAlign = Paint.Align.LEFT; label.color = if (onColor) dark else lean
+        c.drawText("POBRE", 0f, y, label)
+        label.textAlign = Paint.Align.CENTER; label.color = if (onColor) dark else Ui.MUTED
+        c.drawText("0,45 V", w / 2, y, label)
+        label.textAlign = Paint.Align.RIGHT; label.color = if (onColor) dark else rich
+        c.drawText("RICA", w, y, label)
+    }
+}
+
+/**
  * Conta-giros em barra: escala de 0 a 7.000 rpm com marcas de 1.000 em 1.000 e faixa vermelha a partir de 6.000.
  * O preenchimento segue a escala de calor (azul em baixa, vermelho no alto), como as tabelas de mapa.
  */

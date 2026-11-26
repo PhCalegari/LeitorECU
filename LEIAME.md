@@ -116,6 +116,7 @@ Com a opção **Conectar automaticamente** marcada (padrão), o app conecta sozi
 ## Mistura e sonda lambda (app Android)
 A sonda original é **de banda estreita**: indica só se a mistura está rica (~0,8–0,9 V) ou pobre (~0,1–0,2 V) em relação ao ideal, e não a relação ar/combustível exata. Por isso o app mostra:
 - **Sonda lambda (estado)**: "Oscilando ✓", "Rica", "Pobre", "Parada ⚠" ou "Motor frio", olhando os últimos 12 s e ignorando os cortes de injeção (em que a sonda cai naturalmente para ~0,05–0,1 V);
+- **Indicador no bloco da sonda (Painel)**: barra de LEDs de 0 a 1 V (azul = pobre, verde = 0,45 V ideal, vermelho = rica) e etiqueta RICA / POBRE / CORTE (corte = pé fora do acelerador), com a média de 30 s ao lado. Com o motor quente é normal alternar entre rica e pobre várias vezes por segundo; problema é ficar parado num lado ou a média passar de ±10 %;
 - **Mistura**: média de 30 s da correção da riqueza (PR035, com 128 = neutro), em %. Positivo quer dizer que a central está adicionando combustível (o motor tende a ficar pobre). Até ±10 % aparece "OK", de 10 a 20 % "tendência", e acima de 20 % um alerta.
 
 ## Códigos de falha
