@@ -105,6 +105,8 @@ class MainActivity : Activity() {
     private var overlay: LinearLayout? = null
 
     private val worker = Thread { workerLoop() }
+    private lateinit var drag: DragPage
+    @Volatile private var latest: Map<String, Double> = emptyMap()
 
     // =====================================================================
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -121,6 +123,7 @@ class MainActivity : Activity() {
         running = false
         monitoring = false
         try { link?.close() } catch (_: Exception) {}
+        try { drag.stopGps() } catch (_: Exception) {}
         super.onDestroy()
     }
 
@@ -160,14 +163,15 @@ class MainActivity : Activity() {
         col.addView(row)
 
         val tabRow = LinearLayout(this).apply { setPadding(0, dp(6), 0, dp(6)) }
-        tabs = listOf("Painel", "Gráfico", "Diagnóstico", "Bytes").mapIndexed { i, s ->
+        tabs = listOf("Painel", "Gráfico", "Pista", "Diag.", "Bytes").mapIndexed { i, s ->
             button(s) { showPage(i) }.also { tabRow.addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
         }
         col.addView(tabRow)
 
         val content = FrameLayout(this)
         col.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
-        pages = listOf(buildDashboard(), buildGraph(), buildDiag(), buildRaw())
+        drag = DragPage(this) { latest }
+        pages = listOf(buildDashboard(), buildGraph(), drag.view, buildDiag(), buildRaw())
         pages.forEach { content.addView(it) }
         showPage(0)
         setContentView(root)
@@ -449,6 +453,10 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(code: Int, perms: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(code, perms, results)
+        if (code == DragPage.REQ) {
+            drag.onPermission(results.isNotEmpty() && results.any { it == PackageManager.PERMISSION_GRANTED })
+            return
+        }
         if (results.isNotEmpty() && results.all { it == PackageManager.PERMISSION_GRANTED }) connect(demo = false)
         else setStatus("Permissão de Bluetooth negada. Libere nas configurações do Android.")
     }
@@ -622,9 +630,10 @@ class MainActivity : Activity() {
             while (h.isNotEmpty() && now - h.first.first > 125_000) h.removeFirst()
             valueViews[k]?.text = fmt(v, m.dec)
         }
+        latest = Modules.known.mapNotNull { m -> m.read(b)?.let { m.key to it } }.toMap()
         rate.text = "ciclo ${cycleMs} ms"
         if (pages[1].visibility == View.VISIBLE) drawGraph()
-        if (pages[3].visibility == View.VISIBLE) {
+        if (pages[4].visibility == View.VISIBLE) {
             val sb = StringBuilder()
             synchronized(stats) {
                 for (lid in lids) {

@@ -22,6 +22,11 @@ O arquivo pronto para instalar é [`apk/LeitorECU.apk`](apk/LeitorECU.apk). Ele 
 - Tem quatro telas:
   - **Painel** configurável: em **Personalizar**, você escolhe os medidores, a ordem (▲▼) e quais ficam **grandes**. Além dos valores identificados, dá para adicionar **bytes ainda sem nome** que estejam variando (mostrados em valor bruto).
   - **Gráfico** ao vivo de até dois valores, cada um com sua escala, nas janelas de 30, 60 ou 120 s.
+  - **Pista** (usa o GPS do celular e a rotação da central):
+    - **marcha atual**, calculada pela velocidade ÷ rotação. O app aprende sozinho as relações do câmbio: basta rodar uma vez passando por todas as marchas;
+    - **cronômetro 0–100** com parciais 0–60 e 0–80, cálculo entre leituras do GPS e histórico com a rotação máxima;
+    - **gráfico de aceleração por marcha** (m/s² × rpm, uma curva por marcha; por padrão só conta as acelerações com o pedal acima de 60 %);
+    - **gravação da sessão** em CSV (`Downloads/LeitorECU/sessao_*.csv`): velocidade do GPS, aceleração, marcha e todos os valores da central.
   - **Diagnóstico**: ler e apagar códigos de falha. Também tem **informações completas da central**: referência, Vdiag, fornecedor, hardware, programa, versão e calibrações, além de tentar ler o VIN (2181), a rede (2182) e a rastreabilidade (2184).
   - **Bytes**: os blocos `21A0` a `21A4` (✓ = já identificado) e a captura guiada, que salva em `Downloads/LeitorECU/`.
 - O botão **Demo** simula a central e serve para ver as telas sem o carro.
