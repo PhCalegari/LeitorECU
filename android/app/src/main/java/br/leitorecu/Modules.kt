@@ -41,6 +41,28 @@ object LambdaWatch {
         while (h.isNotEmpty() && now - h.first().first > 12_000) h.removeFirst()
     }
 
+    /** Média da sonda nos últimos [ms] (sem os cortes de injeção). Com a sonda oscilando, fica perto de 0,45 V. */
+    fun avgV(ms: Long = 3000): Double? {
+        val now = System.currentTimeMillis()
+        val l = h.filter { now - it.first <= ms }.map { it.second }
+        return if (l.size >= 2) l.average() else null
+    }
+
+    // curva típica de sonda de banda estreita (zircônia): só é "inclinada" bem perto de λ = 1
+    private val CURVE = listOf(0.05 to 1.06, 0.10 to 1.03, 0.20 to 1.015, 0.45 to 1.00, 0.70 to 0.985, 0.80 to 0.97, 0.90 to 0.94)
+
+    /** λ estimado a partir da tensão média (válido de ~0,94 a ~1,06; fora disso a sonda satura). */
+    fun lambdaFromV(v: Double): Double {
+        if (v <= CURVE.first().first) return CURVE.first().second
+        if (v >= CURVE.last().first) return CURVE.last().second
+        val i = CURVE.indexOfLast { v >= it.first }
+        val (x0, y0) = CURVE[i]; val (x1, y1) = CURVE[i + 1]
+        return y0 + (y1 - y0) * (v - x0) / (x1 - x0)
+    }
+
+    /** AFR estequiométrico da gasolina brasileira (gasolina C, ~27 % de etanol). */
+    const val AFR_STOICH = 13.2
+
     /** 2 = oscilando OK, 1 = rica, 0 = pobre, -1 = parada, 3 = motor frio (malha aberta). */
     fun state(b: Map<Int, ByteArray>): Double? {
         val water = sig("agua", b)
@@ -111,7 +133,8 @@ object Modules {
         Module(s.key, s.name, s.unit, s.dec, s.provisional, false) { b -> s.read(b) }
     } + listOf(
         // velocidade lida da central – posição descoberta automaticamente comparando com o GPS (aba Pista)
-        Module("vel_ecu", "Velocidade (central)", "km/h", 0, true, false) { b -> SpeedMap.read(b) },
+        // exibida na escala do painel do carro, se o usuário ajustou (SpeedMap.read continua a real)
+        Module("vel_ecu", "Velocidade (central)", "km/h", 0, true, false) { b -> SpeedMap.read(b)?.let { it * SpeedMap.dashFactor } },
         // consumo (estimado pelo tempo de injeção; fica "provisório" até calibrar no abastecimento)
         Module("cons_lh", "Consumo", "L/h", 2, true, false) { b -> Fuel.lh(b) },
         Module("cons_kml", "Consumo agora", "km/L (GPS)", 1, true, false) { b -> Fuel.kml(b) },

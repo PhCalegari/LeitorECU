@@ -110,6 +110,11 @@ Tabela no formato dos editores de calibração: rotação nas linhas (500, 650, 
 ## Visual e modo diurno/noturno (app Android)
 Visual de ferramenta de injeção: tudo reto, Painel em blocos pintados pela escala de calor do próprio valor (azul baixo → vermelho alto), barra superior com status e menu ⋮ (Conectar, Demo, Pausar, Personalizar painel, Consumo, Conectar sozinho, Modo diurno/noturno). Modos: **Automático** (segue o modo escuro do celular), **Diurno** (branco) e **Noturno** (preto). A troca não derruba a conexão com o carro.
 
+## Velocidade, marchas e lambda (app Android)
+- **Velocidade da central**: `21A3` byte 11 × 1 (km/h), achada comparando com o GPS. Na aba Pista ela é o número grande (atualiza a cada ~0,3 s, sem o atraso do GPS); o GPS aparece embaixo para comparar. O velocímetro do carro marca a mais de fábrica: o botão **Igualar ao painel do carro** ajusta só a exibição (consumo e km usam a velocidade real).
+- **Marchas** pelas relações de fábrica do câmbio do Clio 1.0 16V Hi-Power: 1ª 4,09 · 2ª 2,24 · 3ª 1,39 · 4ª 1,03 · 5ª 0,79, diferencial 4,36 (conferidas com os dados do carro, erro até ~3 %). O app só ajusta sozinho a escala do pneu.
+- **Lambda (bloco da sonda)**: λ estimado pela média de 3 s da sonda de banda estreita (confiável só perto de 1,00, de ~0,94 a ~1,06), AFR para a gasolina brasileira (13,2:1 no ideal), LEDs de 0,90 a 1,10 (vermelho rica, verde ideal 0,97–1,03, azul pobre) e etiqueta IDEAL / RICA / POBRE / CORTE / MOTOR FRIO.
+
 ## Conexão automática (app Android)
 Com a opção **Conectar automaticamente** marcada (padrão), o app conecta sozinho ao abrir, procurando o último adaptador usado. Se o carro estiver desligado, tenta de novo a cada ~10 s; se a conexão cair, fica tentando até o carro voltar. Toque em **Desconectar** para parar as tentativas. Na primeira vez é preciso tocar em **Conectar** para liberar a permissão de Bluetooth.
 

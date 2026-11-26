@@ -63,32 +63,54 @@ class MainActivity : Activity() {
     private var tach: TachView? = null
     private var mixBar: MixBarView? = null
 
-    /** Bloco da sonda: LEDs + RICA/POBRE/CORTE colorido + média de 30 s da correção da central. */
+    /**
+     * Bloco da sonda como medidor de lambda: λ estimado pela média de 3 s da sonda (para de pular),
+     * AFR na gasolina brasileira, LEDs 0,90–1,10 e etiqueta RICA / IDEAL / POBRE / CORTE + média de 30 s.
+     */
     private fun showMixInLambda(v: Double, b: Map<Int, ByteArray>) {
         val cut = RenaultMap.SIGNALS.firstOrNull { it.key == "st_inj" }?.read(b) == 0.0
+        val water = RenaultMap.SIGNALS.firstOrNull { it.key == "agua" }?.read(b)
+        val cold = water != null && water < 65
+        val avg = LambdaWatch.avgV() ?: v
+        val lam = LambdaWatch.lambdaFromV(avg)
         mixBar?.cut = cut
-        mixBar?.volts = if (cut) null else v
+        mixBar?.lam = if (cut) null else lam
         val t = tiles["lambda"] ?: return
+        t.value.text = if (cut) "--" else when {
+            lam <= 0.9401 -> "<0,94"                                   // sonda saturada: mais rica que isso
+            lam >= 1.0599 -> ">1,06"                                   // sonda saturada: mais pobre que isso
+            else -> fmt(lam, 2)
+        }
+        // fundo pela posição do λ: verde no ideal, vermelho rico, azul pobre (mesma escala de cores do app)
+        if (!cut) {
+            t.card.setBackgroundColor(Ui.heat((1.0 - (lam - 0.90) / 0.20).coerceIn(0.0, 1.0)))
+            t.value.setTextColor(Color.BLACK)
+            t.label.setTextColor(Color.argb(190, 0, 0, 0))
+        }
         val (word, col) = when {
-            cut -> "CORTE" to MUTED                               // pé fora: sonda cai sem a mistura estar pobre
-            v > 0.45 -> "RICA" to Color.parseColor("#E53935")
-            else -> "POBRE" to Color.parseColor("#2F6BFF")
+            cut -> "CORTE" to Color.parseColor("#6B7380")             // pé fora: injeção cortada, não é "pobre"
+            cold -> "MOTOR FRIO" to Color.parseColor("#6B7380")       // malha aberta: central enriquece de propósito
+            lam < 0.97 -> "RICA" to Color.parseColor("#E53935")
+            lam > 1.03 -> "POBRE" to Color.parseColor("#2F6BFF")
+            else -> "IDEAL" to Color.parseColor("#1E9E5A")
         }
         val m = LambdaWatch.mix(b)
-        val rest = when {
-            cut -> "  pé fora do acelerador"
-            m == null -> "  média: juntando…"
-            m == LambdaWatch.MIX_COLD -> "  motor frio"
-            else -> "  30 s: ${LambdaWatch.mixLabel(m)}"
+        val line1 = if (cut) "  pé fora do acelerador"
+            else "  AFR ${fmt(lam * LambdaWatch.AFR_STOICH, 1)}  (${fmt(v, 2)} V)"
+        val line2 = when {
+            cut -> ""
+            m == null -> "\nmédia 30 s: juntando…"
+            m == LambdaWatch.MIX_COLD -> "\nmotor frio: mistura enriquecida"
+            else -> "\ncorreção 30 s: ${LambdaWatch.mixLabel(m)}"
         }
-        // etiqueta: texto branco sobre vermelho/azul/cinza, legível sobre o bloco colorido
+        // etiqueta: texto branco sobre a cor do estado, legível sobre o bloco colorido
         val tag = " $word "
-        val sp = android.text.SpannableString(tag + rest)
-        sp.setSpan(android.text.style.BackgroundColorSpan(if (cut) Color.parseColor("#6B7380") else col), 0, tag.length, 0)
+        val sp = android.text.SpannableString(tag + line1 + line2)
+        sp.setSpan(android.text.style.BackgroundColorSpan(col), 0, tag.length, 0)
         sp.setSpan(android.text.style.ForegroundColorSpan(Color.WHITE), 0, tag.length, 0)
         sp.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, tag.length, 0)
         t.unit?.text = sp
-        mixBar?.onColor = Ui.heatFor("lambda", v) != null
+        mixBar?.onColor = !cut
     }
     private lateinit var connBox: LinearLayout
     private lateinit var discSmall: Button
@@ -261,6 +283,12 @@ class MainActivity : Activity() {
         SpeedMap.load(getSharedPreferences("cfg", 0))
         dash = DashConfig.load(this)
         val cfgP = getSharedPreferences("cfg", 0)
+        // velocidade da central logo abaixo da rotação (uma vez; depois vale a ordem que o usuário escolher)
+        if (!cfgP.getBoolean("vel_moved", false)) {
+            val i = dash.indexOfFirst { it.key == "vel_ecu" }
+            if (i > 1) { val c = dash.removeAt(i); dash.add((dash.indexOfFirst { it.key == "rpm" } + 1).coerceIn(0, dash.size), c); DashConfig.save(this, dash) }
+            cfgP.edit().putBoolean("vel_moved", true).apply()
+        }
         // o indicador de mistura agora fica dentro do bloco da sonda: tira o bloco separado de quem já tinha
         if (!cfgP.getBoolean("mix_now_removed", false)) {
             if (dash.removeAll { it.key == "mix_now" }) DashConfig.save(this, dash)
@@ -500,7 +528,11 @@ class MainActivity : Activity() {
                 setPadding(dp(10), dp(6), dp(10), dp(6))
             }
             // rótulo curto em maiúsculas, como nas colunas dos programas de injeção; "*" = a confirmar
-            val nm = (if (cfg.key == "rpm") "${m.name} (rpm)" else m.name) + if (m.provisional && !m.raw) " *" else ""
+            val nm = when (cfg.key) {
+                "rpm" -> "${m.name} (rpm)"
+                "lambda" -> "Lambda λ (média 3 s)"
+                else -> m.name
+            } + if (m.provisional && !m.raw) " *" else ""
             val label = text(nm.uppercase(), if (cfg.big) 12f else 11f, MUTED, true).apply {
                 maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; letterSpacing = 0.02f
             }
@@ -523,6 +555,7 @@ class MainActivity : Activity() {
             val unitTv = if (cfg.key != "rpm")
                 text(if (m.raw) "byte bruto 0–255" else m.unit, 11f, MUTED).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
             else null
+            if (cfg.key == "lambda") unitTv?.maxLines = 2   // AFR + correção de 30 s
             unitTv?.let { card.addView(it) }
             valueViews[cfg.key] = v
             tiles[cfg.key] = Tile(card, label, v, unitTv)

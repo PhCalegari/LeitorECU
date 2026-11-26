@@ -19,14 +19,35 @@ object SpeedMap {
         return (raw * scale + offset).coerceAtLeast(0.0)
     }
 
+    /**
+     * Fator só de exibição para mostrar a velocidade como o velocímetro do carro (que marca a mais de fábrica).
+     * Consumo e km da viagem continuam com a velocidade real.
+     */
+    @Volatile var dashFactor = 1.0
+
     fun load(p: SharedPreferences) {
+        dashFactor = p.getFloat("dash_factor", 1f).toDouble()
         val s = p.getString("speed_map", null) ?: return
         val f = s.split(":")
         if (f.size == 5) {
             lid = f[0].toInt(); start = f[1].toInt(); len = f[2].toInt()
             scale = f[3].toDouble(); offset = f[4].toDouble()
+            if (snap()) save(p)
         }
     }
+
+    /**
+     * A central manda a velocidade em km/h inteiros (byte × 1). A busca pelo GPS sai um pouco torta por causa do
+     * atraso do GPS nas acelerações (ex.: × 1,044 − 3,1). Se ficou perto de "× 1", usa "× 1" exato.
+     */
+    fun snap(): Boolean {
+        if (len == 1 && kotlin.math.abs(scale - 1.0) < 0.08 && kotlin.math.abs(offset) < 6 && (scale != 1.0 || offset != 0.0)) {
+            scale = 1.0; offset = 0.0; return true
+        }
+        return false
+    }
+
+    fun saveDash(p: SharedPreferences, f: Double) { dashFactor = f; p.edit().putFloat("dash_factor", f.toFloat()).apply() }
 
     fun save(p: SharedPreferences) = p.edit().putString("speed_map", "$lid:$start:$len:$scale:$offset").apply()
     fun clear(p: SharedPreferences) { len = 0; p.edit().remove("speed_map").apply() }

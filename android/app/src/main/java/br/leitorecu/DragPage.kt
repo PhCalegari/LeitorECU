@@ -57,13 +57,24 @@ class DragPage(
     private val ecuTick = object : Runnable {
         override fun run() {
             showEcu()
-            Handler(Looper.getMainLooper()).postDelayed(this, 1000)
+            Handler(Looper.getMainLooper()).postDelayed(this, 300)
         }
     }
+
+    /** Hora da última velocidade da central mostrada (se recente, o GPS não sobrescreve o número grande). */
+    private var ecuSpeedAt = 0L
 
     private fun showEcu() {
         val e = ecuNow()
         val t = e["_t"]
+        // velocidade da central no número grande: sem o atraso do GPS e funciona em túnel/garagem
+        val ve = e["vel_ecu"]
+        if (ve != null && t != null && System.currentTimeMillis() - t < 2000) {
+            speedTv.text = String.format(br, "%.0f", ve)
+            updateGear(SystemClock.elapsedRealtime().toDouble(), ve / SpeedMap.dashFactor, e["rpm"])
+            ecuSpeedAt = System.currentTimeMillis()
+            speedUnitTv.text = speedUnit()
+        }
         // a luz da frente diz se a central responde (verde) ou parou (vermelho); os números ficam em branco
         fun light(c: Int, s: String): CharSequence {
             val sp = android.text.SpannableString("●  $s")
@@ -114,6 +125,8 @@ class DragPage(
 
     // ---- views ----
     private val speedTv: TextView
+    private lateinit var speedUnitTv: TextView
+    private var lastGps: Double? = null
     private val gearTv: TextView
     private val gearInfo: TextView
     private val clockTv: TextView
@@ -178,7 +191,7 @@ class DragPage(
         speedTv = tv("--", bigSp.toFloat(), Ui.TEXT, true).apply { Ui.num(this) }
         gearTv = tv("–", bigSp.toFloat(), Ui.GREEN, true).apply { Ui.num(this) }
         val sp = LinearLayout(act).apply {
-            orientation = LinearLayout.VERTICAL; addView(speedTv, big(speedTv, bigSp)); addView(tv("km/h (GPS)", 13f, muted))
+            orientation = LinearLayout.VERTICAL; addView(speedTv, big(speedTv, bigSp)); speedUnitTv = tv(speedUnit(), 13f, muted); addView(speedUnitTv)
         }
         val gr = LinearLayout(act).apply {
             orientation = LinearLayout.VERTICAL; addView(gearTv, big(gearTv, bigSp)); addView(tv("marcha", 13f, muted))
@@ -196,7 +209,7 @@ class DragPage(
         col.addView(speedFindTv)
         col.addView(row(btn("Procurar velocidade de novo") {
             SpeedMap.clear(prefsCfg); finder.reset(); showSpeedFind()
-        }))
+        }, btn("Igualar ao painel do carro") { askDash() }))
 
         // 0–100
         col.addView(heading("Cronômetro 0–100"))
@@ -220,7 +233,7 @@ class DragPage(
         col.addView(graph, LinearLayout.LayoutParams(-1, (act.resources.displayMetrics.density * 280).toInt()))
         btnFilter = btn("Filtro: só pé embaixo") { pedalFilter = !pedalFilter; updateFilterBtn() }
         col.addView(row(btnFilter, btn("Limpar gráfico") { curve.clear(); graph.invalidate() }))
-        col.addView(row(btn("Recalibrar marchas") { gears.reset(); gearNow = 0; showGearInfo() }))
+        col.addView(row(btn("Voltar marchas ao padrão") { gears.reset(); gearNow = 0; showGearInfo() }))
 
         // histórico 0–100
         col.addView(heading("Histórico 0–100"))
@@ -237,6 +250,50 @@ class DragPage(
 
     private val prefsCfg get() = act.getSharedPreferences("cfg", 0)
 
+    private fun speedUnit(): String {
+        val fromEcu = System.currentTimeMillis() - ecuSpeedAt < 2000
+        val src = if (fromEcu) "central" else "GPS"
+        val adj = if (abs(SpeedMap.dashFactor - 1.0) < 0.001) "velocidade real"
+            else String.format(br, "como o painel: %+.0f %%", (SpeedMap.dashFactor - 1) * 100)
+        val gps = if (fromEcu) lastGps?.let { String.format(br, "  •  GPS %.0f", it * SpeedMap.dashFactor) } ?: "" else ""
+        return "km/h ($src, $adj)$gps"
+    }
+
+    /**
+     * O velocímetro do carro marca a mais de fábrica. Pergunta quanto o painel mostra numa velocidade constante e
+     * calcula o fator só para exibir igual ao painel (consumo e km continuam com a velocidade real).
+     */
+    private fun askDash() {
+        val real = SpeedMap.read(blocksNow()) ?: lastGps
+        if (real == null || real < 20) {
+            statusTv.text = "Para ajustar: GPS ligado (ou central conectada) e o carro a 40 km/h ou mais, em velocidade constante."
+            return
+        }
+        val input = android.widget.EditText(act).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            hint = "ex.: 63"
+            setTextColor(Ui.TEXT)
+        }
+        android.app.AlertDialog.Builder(act)
+            .setTitle("Igualar ao painel do carro")
+            .setMessage(String.format(br, "Velocidade real agora: %.0f km/h.\nQuanto o painel do carro está marcando?", real))
+            .setView(input)
+            .setPositiveButton("Salvar") { _, _ ->
+                val dash = input.text.toString().replace(',', '.').toDoubleOrNull()
+                if (dash != null && dash > 0) {
+                    val f = (dash / real).coerceIn(0.85, 1.20)   // velocímetros ficam dentro dessa faixa
+                    SpeedMap.saveDash(prefsCfg, f)
+                    speedUnitTv.text = speedUnit()
+                    statusTv.text = String.format(br, "Ajustado: o painel marca %+.0f %% em relação à velocidade real.", (f - 1) * 100)
+                }
+            }
+            .setNeutralButton("Voltar à real") { _, _ ->
+                SpeedMap.saveDash(prefsCfg, 1.0); speedUnitTv.text = speedUnit()
+                statusTv.text = "Mostrando a velocidade real (GPS/central)."
+            }
+            .setNegativeButton("Cancelar", null).show()
+    }
+
     private fun showSpeedFind() {
         speedFindTv.text = if (SpeedMap.known) "Velocidade da central: ${SpeedMap.describe()} ✓"
         else finder.progress()
@@ -252,6 +309,7 @@ class DragPage(
             finder.best()?.let { r ->
                 SpeedMap.lid = r.lid; SpeedMap.start = r.start; SpeedMap.len = r.len
                 SpeedMap.scale = r.scale; SpeedMap.offset = r.offset
+                SpeedMap.snap()   // km/h direto quando a conta der perto de "× 1"
                 SpeedMap.save(prefsCfg)
                 beep(true)
                 statusTv.text = "Velocidade encontrada na central!"
@@ -308,7 +366,11 @@ class DragPage(
         fixTimes.addLast(now)
         while (fixTimes.isNotEmpty() && now - fixTimes.first() > 3000) fixTimes.removeFirst()
         gpsTv.text = String.format(br, "GPS: %.1f leituras/s • precisão ±%.0f m", fixTimes.size / 3.0, l.accuracy)
-        speedTv.text = String.format(br, "%.0f", v)
+        // o número grande é o da central quando ela tem velocidade; senão, o do GPS
+        if (System.currentTimeMillis() - ecuSpeedAt > 2000) {
+            speedTv.text = String.format(br, "%.0f", v * SpeedMap.dashFactor)   // na escala do painel, se ajustado
+        }
+        lastGps = v
 
         // aceleração (m/s²) pela variação da velocidade do GPS
         val dt = (t - prevT) / 1000.0
@@ -319,7 +381,7 @@ class DragPage(
 
         feedFinder(v, l.accuracy)
         // marcha: usa a velocidade da central quando ela já foi descoberta (mais rápida que o GPS)
-        updateGear(t, ecu["vel_ecu"] ?: v, rpm)
+        updateGear(t, ecu["vel_ecu"]?.let { it / SpeedMap.dashFactor } ?: v, rpm)
         if (gearNow > 0 && rpm != null && v > 5 && accel > 0.05 && (!pedalFilter || (pedal ?: 0.0) >= 60.0)) {
             curve.add(gearNow, rpm, accel)
             graph.invalidate()
@@ -347,9 +409,8 @@ class DragPage(
 
     private fun showGearInfo(r: Double? = null) {
         val c = gears.centers
-        gearInfo.text = (if (c.isEmpty()) "Marchas: calibrando – dirija passando por todas as marchas."
-        else "Marchas aprendidas (km/h a cada 1000 rpm): " +
-                c.mapIndexed { i, x -> "${i + 1}ª ${String.format(br, "%.1f", x)}" }.joinToString("  ")) +
+        gearInfo.text = "Câmbio de fábrica (dif. 4,36), km/h a cada 1000 rpm: " +
+                c.mapIndexed { i, x -> "${i + 1}ª ${String.format(br, "%.1f", x)}" }.joinToString("  ") +
                 (r?.let { String.format(br, "\nAgora: %.1f km/h /1000 rpm", it) } ?: "")
     }
 
@@ -514,39 +575,64 @@ class DragPage(
     }
 }
 
-/** Aprende as relações de marcha (km/h a cada 1000 rpm) por agrupamento e salva nas preferências. */
+/**
+ * Marchas pelas relações de FÁBRICA do câmbio do Clio 1.0 16V Hi-Power (1ª 4,09 · 2ª 2,24 · 3ª 1,39 · 4ª 1,03 ·
+ * 5ª 0,79 · diferencial 4,36). km/h a cada 1000 rpm = K ÷ relação da marcha, onde K depende do pneu e do diferencial.
+ * Identifica a marcha desde o começo; só a escala K se ajusta sozinha com o uso (pneu gasto, medida diferente).
+ */
 class Gears(private val prefs: android.content.SharedPreferences) {
-    private val list = mutableListOf<DoubleArray>()   // [centro, contagem]
+    companion object {
+        val RATIOS = doubleArrayOf(4.09, 2.24, 1.39, 1.03, 0.79)
+        const val DIFF = 4.36
+        // pneu 175/65 R14 (≈1,83 m de volta): 60 × 1,83 ÷ 4,36 ≈ 25,2; na prática o carro mostrou ~24
+        const val K_DEFAULT = 24.5
+    }
+
+    var k = K_DEFAULT; private set
+    private var updates = 0
 
     init {
-        prefs.getString("gears", "")?.split(",")?.mapNotNull { e ->
-            val p = e.split(":"); if (p.size == 2) doubleArrayOf(p[0].toDouble(), p[1].toDouble()) else null
-        }?.let { list.addAll(it) }
+        val saved = prefs.getFloat("gear_k", 0f).toDouble()
+        k = if (saved > 0) saved else fromOldLearning() ?: K_DEFAULT
     }
 
-    /** Centros confiáveis (vistos várias vezes), em ordem crescente = 1ª, 2ª, ... */
-    val centers: List<Double> get() = list.filter { it[1] >= 2 }.map { it[0] }.sorted()
-
-    fun learn(r: Double) {
-        val near = list.minByOrNull { abs(it[0] - r) / it[0] }
-        if (near != null && abs(near[0] - r) / near[0] < 0.10) {
-            near[0] = near[0] * 0.9 + r * 0.1
-            near[1] = min(near[1] + 1, 1000.0)
-        } else {
-            list.add(doubleArrayOf(r, 1.0))
-            if (list.size > 7) list.remove(list.minByOrNull { it[1] }!!)   // descarta ruído
+    /** Aproveita as marchas que a versão anterior aprendeu (centros com várias leituras) para estimar K. */
+    private fun fromOldLearning(): Double? {
+        val ks = ArrayList<Pair<Double, Double>>()   // (K estimado, peso)
+        prefs.getString("gears", "")?.split(",")?.forEach { e ->
+            val q = e.split(":"); if (q.size != 2) return@forEach
+            val c = q[0].toDoubleOrNull() ?: return@forEach
+            val n = q[1].toDoubleOrNull() ?: return@forEach
+            if (n < 10) return@forEach
+            val best = RATIOS.map { c * it }.minByOrNull { abs(it - K_DEFAULT) } ?: return@forEach
+            if (abs(best - K_DEFAULT) / K_DEFAULT < 0.15) ks.add(best to n)
         }
-        prefs.edit().putString("gears", list.joinToString(",") { "${it[0]}:${it[1]}" }).apply()
+        if (ks.isEmpty()) return null
+        val est = ks.sumOf { it.first * it.second } / ks.sumOf { it.second }
+        prefs.edit().putFloat("gear_k", est.toFloat()).apply()
+        return est
     }
 
-    /** Número da marcha (1..n) para a relação atual, ou 0 se não bate com nenhuma (embreagem/troca). */
+    /** km/h a cada 1000 rpm de cada marcha (1ª..5ª). */
+    val centers: List<Double> get() = RATIOS.map { k / it }
+
+    /** Relação estável vista (marcha engatada): ajusta só a escala K, devagar. */
+    fun learn(r: Double) {
+        val c = centers
+        val i = c.indices.minByOrNull { abs(c[it] - r) / c[it] } ?: return
+        if (abs(c[i] - r) / c[i] > 0.10) return            // embreagem/troca: ignora
+        k = k * 0.97 + (r * RATIOS[i]) * 0.03
+        if (++updates % 20 == 0) prefs.edit().putFloat("gear_k", k.toFloat()).apply()
+    }
+
+    /** Número da marcha (1..5) para a relação atual, ou 0 se não bate com nenhuma (embreagem/troca). */
     fun match(r: Double): Int {
         val c = centers
         val i = c.indices.minByOrNull { abs(c[it] - r) / c[it] } ?: return 0
         return if (abs(c[i] - r) / c[i] < 0.07) i + 1 else 0
     }
 
-    fun reset() { list.clear(); prefs.edit().remove("gears").apply() }
+    fun reset() { k = K_DEFAULT; updates = 0; prefs.edit().remove("gear_k").remove("gears").apply() }
 }
 
 /** Média da aceleração por faixa de rotação (250 rpm), separada por marcha. */
