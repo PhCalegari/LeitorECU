@@ -77,24 +77,26 @@ class GraphView(ctx: Context) : View(ctx) {
     var windowSec = 60
 
     private val br = Locale("pt", "BR")
-    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 5f }
-    private val grid = Paint().apply { color = Color.parseColor("#2C3138"); strokeWidth = 2f }
-    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 34f }
+    private val d = ctx.resources.displayMetrics.density
+    private val sd = ctx.resources.displayMetrics.scaledDensity
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * d }
+    private val grid = Paint().apply { color = Color.parseColor("#2C3138"); strokeWidth = 1f * d }
+    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 13f * sd }
 
     override fun onDraw(c: Canvas) {
         super.onDraw(c)
         c.drawColor(Color.parseColor("#1E2228"))
         val w = width.toFloat()
         val h = height.toFloat()
-        val top = 110f
-        val bottom = h - 30f
+        val top = 48f * d
+        val bottom = h - 12f * d
         for (k in 0..4) {
             val y = top + (bottom - top) * k / 4
             c.drawLine(0f, y, w, y, grid)
         }
         if (series.isEmpty()) {
             txt.color = Color.parseColor("#9AA4AE")
-            c.drawText("Escolha um valor para o gráfico.", 20f, h / 2, txt)
+            c.drawText("Escolha um valor para o gráfico.", 8f * d, h / 2, txt)
             return
         }
         val now = System.currentTimeMillis()
@@ -106,7 +108,7 @@ class GraphView(ctx: Context) : View(ctx) {
             val last = pts.lastOrNull()?.second
             val label = "${s.name}: " + (last?.let { String.format(br, "%.${s.dec}f", it) } ?: "--") + " ${s.unit}"
             if (pts.size < 2) {
-                c.drawText(label, 20f, 45f + idx * 45f, txt); return@forEachIndexed
+                c.drawText(label, 8f * d, (18f + idx * 18f) * d, txt); return@forEachIndexed
             }
             var mn = pts.minOf { it.second }
             var mx = pts.maxOf { it.second }
@@ -122,7 +124,7 @@ class GraphView(ctx: Context) : View(ctx) {
             c.drawPath(path, line)
             val range = " [" + String.format(br, "%.${s.dec}f", mn + pad) + " – " +
                     String.format(br, "%.${s.dec}f", mx - pad) + "]"
-            c.drawText(label + range, 20f, 45f + idx * 45f, txt)
+            c.drawText(label + range, 8f * d, (18f + idx * 18f) * d, txt)
         }
     }
 }

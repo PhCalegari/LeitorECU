@@ -136,8 +136,32 @@ class MainActivity : Activity() {
             if (bold) setTypeface(typeface, Typeface.BOLD)
         }
 
+    /** Tela estreita (celulares comuns em pé têm ~360–412 dp). */
+    private val narrow get() = resources.configuration.screenWidthDp < 400
+
+    /** Botão compacto: sem a largura mínima de 88 dp do Android, texto numa linha só. */
     private fun button(s: String, onClick: () -> Unit) = Button(this).apply {
         text = s; isAllCaps = false; setOnClickListener { onClick() }
+        minWidth = 0; minimumWidth = 0
+        minHeight = dp(42); minimumHeight = dp(42)
+        setPadding(dp(6), 0, dp(6), 0)
+        textSize = if (narrow) 13f else 14f
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+    }
+
+    /** Número que diminui sozinho para caber no card (Android 8+); altura fixa para não "pular". */
+    private fun fitText(tv: TextView, maxSp: Int): LinearLayout.LayoutParams {
+        tv.maxLines = 1
+        if (Build.VERSION.SDK_INT >= 26) {
+            tv.setAutoSizeTextTypeUniformWithConfiguration(12, maxSp, 1, TypedValue.COMPLEX_UNIT_SP)
+        }
+        return LinearLayout.LayoutParams(-1, dp((maxSp * 1.3f).toInt()))
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        rebuildDashboard()   // recalcula tamanhos ao girar a tela
     }
 
     private fun rounded(color: Int) = GradientDrawable().apply { setColor(color); cornerRadius = dp(10).toFloat() }
@@ -192,11 +216,11 @@ class MainActivity : Activity() {
             monitoring = !monitoring
             btnPause.text = if (monitoring) "Pausar" else "Retomar"
         }.apply { isEnabled = false }
-        top.addView(btnPause)
-        top.addView(button("Personalizar") { showCustomize() })
-        rate = text("", 12f, MUTED).apply { setPadding(dp(10), 0, 0, 0) }
-        top.addView(rate)
+        top.addView(btnPause, LinearLayout.LayoutParams(0, -2, 1f))
+        top.addView(button("Personalizar") { showCustomize() }, LinearLayout.LayoutParams(0, -2, 1f))
         col.addView(top)
+        rate = text("", 12f, MUTED).apply { setPadding(dp(4), 0, 0, dp(2)) }
+        col.addView(rate)
 
         grid = GridLayout(this).apply { columnCount = 2 }
         col.addView(grid)
@@ -216,9 +240,13 @@ class MainActivity : Activity() {
                 background = rounded(CARD)
                 setPadding(dp(12), dp(10), dp(12), dp(10))
             }
-            card.addView(text(m.name, if (cfg.big) 15f else 13f, MUTED))
-            val v = text("--", if (cfg.big) 52f else 30f, Color.WHITE, true)
-            card.addView(v)
+            card.setPadding(dp(10), dp(8), dp(10), dp(8))
+            card.addView(text(m.name, if (cfg.big) 15f else 13f, MUTED).apply {
+                maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+            val maxSp = if (cfg.big) (if (narrow) 44 else 52) else (if (narrow) 26 else 30)
+            val v = text("--", maxSp.toFloat(), Color.WHITE, true)
+            card.addView(v, fitText(v, maxSp))
             val tag = when {
                 m.raw -> "  • não identificado"
                 m.provisional -> "  • provisório"
@@ -264,21 +292,28 @@ class MainActivity : Activity() {
             all.forEachIndexed { i, k ->
                 val m = Modules.byKey(k) ?: return@forEachIndexed
                 val cur = m.read(snap)?.let { " = " + fmt(it, m.dec) } ?: ""
-                val r = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+                // linha 1: nome (pode quebrar) / linha 2: Grande + ▲▼ alinhados à direita
+                val item = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(0, dp(6), 0, dp(6))
+                }
                 val cb = CheckBox(this).apply {
                     text = m.name + cur + if (m.raw) " (bruto)" else ""
                     isChecked = checked[k] == true
                     setOnCheckedChangeListener { _, b -> checked[k] = b }
                 }
-                r.addView(cb, LinearLayout.LayoutParams(0, -2, 1f))
+                item.addView(cb)
+                val r = LinearLayout(this).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
                 val bg = CheckBox(this).apply {
                     text = "Grande"; isChecked = big[k] == true
                     setOnCheckedChangeListener { _, b -> big[k] = b }
                 }
                 r.addView(bg)
-                r.addView(button("▲") { if (i > 0) { all.add(i - 1, all.removeAt(i)); render() } }, LinearLayout.LayoutParams(dp(48), -2))
-                r.addView(button("▼") { if (i < all.size - 1) { all.add(i + 1, all.removeAt(i)); render() } }, LinearLayout.LayoutParams(dp(48), -2))
-                list.addView(r)
+                r.addView(button("▲") { if (i > 0) { all.add(i - 1, all.removeAt(i)); render() } }, LinearLayout.LayoutParams(dp(52), -2))
+                r.addView(button("▼") { if (i < all.size - 1) { all.add(i + 1, all.removeAt(i)); render() } }, LinearLayout.LayoutParams(dp(52), -2))
+                item.addView(r, LinearLayout.LayoutParams(-1, -2))
+                list.addView(item)
+                list.addView(View(this).apply { setBackgroundColor(Color.parseColor("#33FFFFFF")) }, LinearLayout.LayoutParams(-1, 1))
             }
         }
         render()
@@ -672,12 +707,19 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
             setPadding(dp(16), dp(16), dp(16), dp(16)); isClickable = true
         }
-        val title = text("", 44f, Color.WHITE, true).apply { gravity = Gravity.CENTER }
-        val msg = text("", 20f).apply { gravity = Gravity.CENTER }
-        val count = text("", 96f, Color.WHITE, true).apply { gravity = Gravity.CENTER }
+        // tamanhos proporcionais ao menor lado da tela (funciona em pé e deitado)
+        val s = minOf(resources.configuration.screenWidthDp, resources.configuration.screenHeightDp) / 360f
+        val title = text("", 40f * s, Color.WHITE, true).apply { gravity = Gravity.CENTER }
+        val msg = text("", 19f * s).apply { gravity = Gravity.CENTER }
+        val count = text("", 88f * s, Color.WHITE, true).apply { gravity = Gravity.CENTER }
         val info = text("", 14f).apply { gravity = Gravity.CENTER }
-        listOf(title, msg, count, info).forEach { ov.addView(it) }
-        ov.addView(button("Cancelar") { endGuided(cancel = true) })
+        ov.addView(title, fitText(title, (40 * s).toInt()).apply { width = -1 })
+        ov.addView(msg)
+        ov.addView(count, fitText(count, (88 * s).toInt()))
+        ov.addView(info)
+        ov.addView(button("Cancelar") { endGuided(cancel = true) }, LinearLayout.LayoutParams(dp(160), -2).apply {
+            gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(12)
+        })
         overlay = ov
         root.addView(ov, FrameLayout.LayoutParams(-1, -1))
 

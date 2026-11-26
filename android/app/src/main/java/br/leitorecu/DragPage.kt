@@ -82,7 +82,7 @@ class DragPage(private val act: Activity, private val ecuNow: () -> Map<String, 
     private val gearInfo: TextView
     private val clockTv: TextView
     private val statusTv: TextView
-    private val splitsTv: TextView
+    private val splitTvs: Map<Int, TextView>
     private val gpsTv: TextView
     private val histTv: TextView
     private val btnGps: Button
@@ -96,7 +96,23 @@ class DragPage(private val act: Activity, private val ecuNow: () -> Map<String, 
         if (bold) setTypeface(typeface, Typeface.BOLD)
     }
 
-    private fun btn(s: String, f: () -> Unit) = Button(act).apply { text = s; isAllCaps = false; setOnClickListener { f() } }
+    private val dens = act.resources.displayMetrics.density
+    private fun dp(v: Int) = (v * dens).toInt()
+
+    private fun btn(s: String, f: () -> Unit) = Button(act).apply {
+        text = s; isAllCaps = false; setOnClickListener { f() }
+        minWidth = 0; minimumWidth = 0; minHeight = dp(42); minimumHeight = dp(42)
+        setPadding(dp(6), 0, dp(6), 0); textSize = 13f
+        maxLines = 2
+    }
+
+    /** Número grande que encolhe para caber (Android 8+). */
+    private fun big(tv: TextView, maxSp: Int): LinearLayout.LayoutParams {
+        tv.maxLines = 1
+        if (Build.VERSION.SDK_INT >= 26)
+            tv.setAutoSizeTextTypeUniformWithConfiguration(14, maxSp, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+        return LinearLayout.LayoutParams(-1, dp((maxSp * 1.3f).toInt()))
+    }
 
     private fun row(vararg b: View) = LinearLayout(act).apply {
         b.forEach { addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
@@ -113,10 +129,15 @@ class DragPage(private val act: Activity, private val ecuNow: () -> Map<String, 
         col.addView(statusTv)
 
         // velocidade + marcha lado a lado
-        speedTv = tv("--", 64f, Color.WHITE, true)
-        gearTv = tv("–", 64f, Color.parseColor("#7CDB6A"), true)
-        val sp = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL; addView(speedTv); addView(tv("km/h (GPS)", 13f, muted)) }
-        val gr = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL; addView(gearTv); addView(tv("marcha", 13f, muted)) }
+        val bigSp = if (act.resources.configuration.screenWidthDp < 400) 56 else 64
+        speedTv = tv("--", bigSp.toFloat(), Color.WHITE, true)
+        gearTv = tv("–", bigSp.toFloat(), Color.parseColor("#7CDB6A"), true)
+        val sp = LinearLayout(act).apply {
+            orientation = LinearLayout.VERTICAL; addView(speedTv, big(speedTv, bigSp)); addView(tv("km/h (GPS)", 13f, muted))
+        }
+        val gr = LinearLayout(act).apply {
+            orientation = LinearLayout.VERTICAL; addView(gearTv, big(gearTv, bigSp)); addView(tv("marcha", 13f, muted))
+        }
         col.addView(row(sp, gr))
         gearInfo = tv("", 12f, muted)
         col.addView(gearInfo)
@@ -124,8 +145,15 @@ class DragPage(private val act: Activity, private val ecuNow: () -> Map<String, 
         // 0–100
         col.addView(tv("Cronômetro 0–100", 14f, muted).apply { setPadding(0, 16, 0, 0) })
         clockTv = tv("0,00 s", 40f, Color.parseColor("#3FA9F5"), true)
-        splitsTv = tv("0–60: --    0–80: --    0–100: --", 17f)
-        col.addView(clockTv); col.addView(splitsTv)
+        col.addView(clockTv, big(clockTv, 40))
+        // parciais em 3 colunas (cabe em tela estreita)
+        splitTvs = TARGETS.associateWith { tv("--", 20f, Color.WHITE, true) }
+        col.addView(row(*TARGETS.map { t ->
+            LinearLayout(act).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(tv("0–$t", 12f, muted)); addView(splitTvs.getValue(t))
+            }
+        }.toTypedArray()))
         col.addView(row(btn("Nova medição 0–100") { rearm() }))
         gpsTv = tv("", 12f, muted)
         col.addView(gpsTv)
@@ -314,7 +342,7 @@ class DragPage(private val act: Activity, private val ecuNow: () -> Map<String, 
 
     private fun showSplits() {
         fun f(k: Int) = splits[k]?.let { String.format(br, "%.2f", it) } ?: "--"
-        splitsTv.text = "0–60: ${f(60)}    0–80: ${f(80)}    0–100: ${f(100)}"
+        for ((t, v) in splitTvs) v.text = f(t)
     }
 
     private fun showHistory() {
@@ -452,15 +480,18 @@ class GearCurve {
 /** Gráfico: aceleração (m/s²) × rotação, uma linha por marcha. */
 class GearGraphView(ctx: Context, private val curve: GearCurve) : View(ctx) {
     private val colors = listOf("#3FA9F5", "#7CDB6A", "#FFB300", "#FF6B6B", "#C38CFF", "#4DD0E1").map { Color.parseColor(it) }
-    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 6f }
+    // tamanhos em dp/sp convertidos para pixels (iguais em qualquer densidade de tela)
+    private val d = ctx.resources.displayMetrics.density
+    private val sd = ctx.resources.displayMetrics.scaledDensity
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2.5f * d }
     private val dot = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val grid = Paint().apply { color = Color.parseColor("#2C3138"); strokeWidth = 2f }
-    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 30f; color = Color.parseColor("#9AA4AE") }
+    private val grid = Paint().apply { color = Color.parseColor("#2C3138"); strokeWidth = 1f * d }
+    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 11f * sd; color = Color.parseColor("#9AA4AE") }
 
     override fun onDraw(c: Canvas) {
         super.onDraw(c)
         c.drawColor(Color.parseColor("#1E2228"))
-        val l = 70f; val r = width - 20f; val top = 60f; val b = height - 50f
+        val l = 30f * d; val r = width - 8f * d; val top = 26f * d; val b = height - 22f * d
         val rpmMin = 1000.0; val rpmMax = 6500.0
         var aMax = 0.5
         curve.bins.values.forEach { m -> m.values.forEach { if (it[1] > 0) aMax = max(aMax, it[0] / it[1]) } }
@@ -468,18 +499,19 @@ class GearGraphView(ctx: Context, private val curve: GearCurve) : View(ctx) {
         for (k in 0..4) {
             val y = b - (b - top) * k / 4
             c.drawLine(l, y, r, y, grid)
-            c.drawText(String.format(Locale("pt", "BR"), "%.1f", aMax * k / 4), 6f, y + 10f, txt)
+            c.drawText(String.format(Locale("pt", "BR"), "%.1f", aMax * k / 4), 2f * d, y + 4f * d, txt)
         }
         for (rpm in listOf(2000, 3000, 4000, 5000, 6000)) {
             val x = (l + (r - l) * (rpm - rpmMin) / (rpmMax - rpmMin)).toFloat()
             c.drawLine(x, top, x, b, grid)
-            c.drawText("$rpm", x - 30f, b + 38f, txt)
+            c.drawText("${rpm / 1000}k", x - 6f * d, b + 16f * d, txt)
         }
-        c.drawText("m/s²", 6f, 40f, txt)
+        c.drawText("m/s²", 2f * d, 16f * d, txt)
         if (curve.bins.isEmpty()) {
-            c.drawText("Acelere em cada marcha para formar as curvas.", l + 10f, (top + b) / 2, txt); return
+            c.drawText("Acelere em cada marcha", l + 8f * d, (top + b) / 2, txt)
+            c.drawText("para formar as curvas.", l + 8f * d, (top + b) / 2 + 16f * d, txt); return
         }
-        var lx = l + 10f
+        var lx = l + 40f * d
         for ((g, m) in curve.bins.toSortedMap()) {
             val col = colors[(g - 1).coerceIn(0, colors.size - 1)]
             line.color = col; dot.color = col
@@ -490,12 +522,12 @@ class GearGraphView(ctx: Context, private val curve: GearCurve) : View(ctx) {
                 x to y
             }
             val path = Path()
-            pts.forEachIndexed { i, (x, y) -> if (i == 0) path.moveTo(x, y) else path.lineTo(x, y); c.drawCircle(x, y, 7f, dot) }
+            pts.forEachIndexed { i, (x, y) -> if (i == 0) path.moveTo(x, y) else path.lineTo(x, y); c.drawCircle(x, y, 3f * d, dot) }
             if (pts.size > 1) c.drawPath(path, line)
             txt.color = col
-            c.drawText("${g}ª", lx, 40f, txt)
+            c.drawText("${g}ª", lx, 16f * d, txt)
             txt.color = Color.parseColor("#9AA4AE")
-            lx += 70f
+            lx += 30f * d
         }
     }
 }
