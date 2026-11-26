@@ -67,6 +67,9 @@ class MainActivity : Activity() {
     @Volatile private var elm: Elm327? = null
     @Volatile private var monitoring = false
     @Volatile private var running = true
+    /** Conexão automática ativa: fica tentando (a cada ~10 s) até achar o adaptador e a central. */
+    @Volatile private var autoActive = false
+    private fun autoPref() = getSharedPreferences("cfg", 0).getBoolean("auto", true)
     private var opener: (() -> Link)? = null
     private val jobs = LinkedBlockingQueue<() -> Unit>()
     private val blocks = HashMap<Int, ByteArray>()
@@ -123,6 +126,9 @@ class MainActivity : Activity() {
         buildUi()
         worker.isDaemon = true
         worker.start()
+        // conecta sozinho ao abrir (se já tem permissão de Bluetooth; senão espera o toque em Conectar)
+        if (autoPref() && neededPermissions().all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED })
+            ui.postDelayed({ if (elm == null && btnConnect.isEnabled) connect(demo = false, auto = true) }, 600)
     }
 
     override fun onDestroy() {
@@ -191,6 +197,15 @@ class MainActivity : Activity() {
         btnDisc = button("Desconectar") { disconnect() }.apply { isEnabled = false }
         listOf(btnConnect, btnDemo, btnDisc).forEach { row.addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
         col.addView(row)
+        col.addView(CheckBox(this).apply {
+            text = "Conectar automaticamente (ao abrir e quando cair)"
+            setTextColor(MUTED); textSize = 13f
+            isChecked = autoPref()
+            setOnCheckedChangeListener { _, on ->
+                getSharedPreferences("cfg", 0).edit().putBoolean("auto", on).apply()
+                if (!on) autoActive = false
+            }
+        })
 
         val tabRow = LinearLayout(this).apply { setPadding(0, dp(6), 0, dp(6)) }
         tabs = listOf("Painel", "Gráfico", "Pista", "Diag.", "Bytes").mapIndexed { i, s ->
@@ -547,16 +562,26 @@ class MainActivity : Activity() {
 
     private fun adapter(): BluetoothAdapter? = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
 
-    private fun connect(demo: Boolean) {
+    private fun connect(demo: Boolean, auto: Boolean = false) {
         if (!demo) {
             val ad = adapter()
             if (ad == null) { setStatus("Este celular não tem Bluetooth."); return }
             if (!ad.isEnabled) {
+                if (auto) { setStatus("Bluetooth desligado – ligue o Bluetooth e toque em Conectar."); return }
                 startActivity(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)); return
             }
         }
         btnConnect.isEnabled = false; btnDemo.isEnabled = false
-        jobs.put {
+        autoActive = !demo && autoPref()
+        if (autoActive) btnDisc.isEnabled = true          // permite parar as tentativas
+        jobs.put { connectLoop(demo) }
+    }
+
+    /** Tenta conectar; com a conexão automática, repete a cada ~10 s até conseguir (roda na thread de trabalho). */
+    private fun connectLoop(demo: Boolean) {
+        var n = 0
+        while (running) {
+            n++
             try {
                 if (demo) {
                     opener = { DemoLink() }
@@ -569,11 +594,33 @@ class MainActivity : Activity() {
                 }
                 openAndInit()
                 ui.post { onConnected() }
+                return
             } catch (e: Exception) {
-                ui.post { btnConnect.isEnabled = true; btnDemo.isEnabled = true }
-                setStatus("Falha: ${e.message}")
+                try { link?.close() } catch (_: Exception) {}
+                link = null; elm = null
+                if (!autoActive || demo) {
+                    ui.post { btnConnect.isEnabled = true; btnDemo.isEnabled = true; btnDisc.isEnabled = false }
+                    setStatus("Falha: ${e.message}")
+                    return
+                }
+                setStatus("Aguardando o carro (tentativa $n)… ${e.message}\nTentando de novo em 10 s – ou toque em Desconectar.")
+                if (!waitAuto(10_000)) {
+                    ui.post { btnConnect.isEnabled = true; btnDemo.isEnabled = true; btnDisc.isEnabled = false }
+                    setStatus("Conexão automática parada.")
+                    return
+                }
             }
         }
+    }
+
+    /** Espera [ms] e devolve false se a conexão automática foi cancelada no meio. */
+    private fun waitAuto(ms: Long): Boolean {
+        val end = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < end) {
+            if (!autoActive || !running) return false
+            Thread.sleep(200)
+        }
+        return autoActive && running
     }
 
     /** Procura o adaptador BLE por ~8 s (nome com OBD/ELM/VLINK/…). */
@@ -624,6 +671,7 @@ class MainActivity : Activity() {
     }
 
     private fun disconnect() {
+        autoActive = false
         monitoring = false
         jobs.put {
             try { link?.close() } catch (_: Exception) {}
@@ -651,8 +699,14 @@ class MainActivity : Activity() {
                 } catch (e: Exception) {
                     if (!reconnect(e.message ?: "erro")) {
                         monitoring = false
-                        setStatus("Conexão perdida: ${e.message}. Toque em Conectar.")
-                        ui.post { btnConnect.isEnabled = true; btnDemo.isEnabled = true }
+                        if (autoActive) {
+                            // conexão automática: continua tentando até o carro voltar
+                            setStatus("Conexão perdida (${e.message}) – aguardando o carro para reconectar…")
+                            connectLoop(demo = false)
+                        } else {
+                            setStatus("Conexão perdida: ${e.message}. Toque em Conectar.")
+                            ui.post { btnConnect.isEnabled = true; btnDemo.isEnabled = true }
+                        }
                     }
                 }
             }

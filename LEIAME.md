@@ -86,6 +86,9 @@ Com o corte de injeção ativo, o consumo vai a zero. O km/L usa a velocidade do
 A vazão real do injetor do D4D não é publicada, então o app começa com 110 cc/min e 0,8 ms de tempo morto e se corrige pelo **abastecimento**: em **Painel → Consumo**, zere a viagem com o tanque cheio e, ao completar de novo, digite os litros que entraram. O app ajusta o fator automaticamente.
 Medidores disponíveis: consumo (L/h), consumo instantâneo (km/L), média da viagem, combustível gasto e distância.
 
+## Conexão automática (app Android)
+Com a opção **Conectar automaticamente** marcada (padrão), o app conecta sozinho ao abrir, procurando o último adaptador usado. Se o carro estiver desligado, tenta de novo a cada ~10 s; se a conexão cair, fica tentando até o carro voltar. Toque em **Desconectar** para parar as tentativas. Na primeira vez é preciso tocar em **Conectar** para liberar a permissão de Bluetooth.
+
 ## Mistura e sonda lambda (app Android)
 A sonda original é **de banda estreita**: indica só se a mistura está rica (~0,8–0,9 V) ou pobre (~0,1–0,2 V) em relação ao ideal, e não a relação ar/combustível exata. Por isso o app mostra:
 - **Sonda lambda (estado)**: "Oscilando ✓", "Rica", "Pobre", "Parada ⚠" ou "Motor frio", olhando os últimos 12 s e ignorando os cortes de injeção (em que a sonda cai naturalmente para ~0,05–0,1 V);
