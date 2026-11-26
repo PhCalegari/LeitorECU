@@ -16,7 +16,14 @@ Foi feito e testado num **Renault Clio II 1.0 16V Hi-Power 2005 (Brasil)**, moto
    - **Wi-Fi:** conecte o PC à rede do adaptador (padrão 192.168.0.10:35000).
    - **Simuladores:** "Simulador" (OBD2 padrão) e "Simulador Renault" servem para testar sem o carro.
 
-## Abas
+## App Android (APK)
+O arquivo pronto para instalar é [`apk/LeitorECU.apk`](apk/LeitorECU.apk). Ele roda no Android 6 ou mais novo e conecta em adaptadores ELM327 **Bluetooth LE**.
+- Para instalar, copie o arquivo para o celular, abra e permita "instalar apps desta fonte". O Play Protect pode avisar que o app é desconhecido, porque foi assinado com a chave de teste.
+- Tem três telas. **Painel**: os mesmos valores da tabela abaixo. **Diagnóstico**: ler e apagar códigos de falha e ver a identificação da central. **Bytes**: os blocos `21A0` a `21A4` e a captura guiada, que salva em `Downloads/LeitorECU/`.
+- O botão **Demo** simula a central e serve para ver as telas sem o carro.
+- O código-fonte (Kotlin, sem dependências externas) está em [`android/`](android/). Para compilar, use JDK 17 e Android SDK 34, criando `android/local.properties` com `sdk.dir=...`, e rode `gradlew assembleDebug`.
+
+## Abas (app para PC)
 - **Painel:** valores convertidos (rotação, pressão do coletor, temperaturas, avanço, injeção, sonda lambda, bateria e outros). Pode gravar tudo em CSV.
 - **Renault (bruto):** mostra cada byte dos blocos `21A0`–`21A4` com mínimo e máximo. Os bytes que variaram ficam em amarelo. Tem botões de anotação e a **captura guiada**, uma tela cheia com avisos para acelerar e soltar, que salva o resultado em `capturas/`.
 - **Diagnóstico:** lê códigos de falha armazenados (03) e pendentes (07), mostra a luz de injeção e apaga os códigos (04).
