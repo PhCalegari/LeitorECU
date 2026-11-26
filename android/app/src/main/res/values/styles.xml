@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Painel de instrumentos: fundo escuro, ponteiro laranja para o que é interativo -->
+    <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:colorPrimary">#1C242C</item>
+        <item name="android:colorPrimaryDark">#151B21</item>
+        <item name="android:colorAccent">#FF7A1A</item>
+        <item name="android:windowBackground">#151B21</item>
+        <item name="android:statusBarColor">#151B21</item>
+        <item name="android:navigationBarColor">#151B21</item>
+        <item name="android:textColorPrimary">#E8EDF2</item>
+        <item name="android:textColorSecondary">#8C99A6</item>
+        <item name="android:colorControlNormal">#8C99A6</item>
+        <item name="android:alertDialogTheme">@style/AppDialog</item>
+    </style>
+    <style name="AppDialog" parent="@android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">#FF7A1A</item>
+        <item name="android:colorBackground">#1C242C</item>
+        <item name="android:textColorPrimary">#E8EDF2</item>
+        <item name="android:textColorSecondary">#8C99A6</item>
+    </style>
+</resources>

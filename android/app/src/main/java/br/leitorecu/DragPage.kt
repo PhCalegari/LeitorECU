@@ -65,11 +65,11 @@ class DragPage(
         val e = ecuNow()
         val t = e["_t"]
         if (t == null || System.currentTimeMillis() - t > 5000) {
-            ecuTv.setTextColor(Color.parseColor("#FF6B6B"))
+            ecuTv.setTextColor(Ui.RED)
             ecuTv.text = "⚠ Central sem dados novos – confira a conexão (linha no topo da tela)"
             return
         }
-        ecuTv.setTextColor(Color.parseColor("#7CDB6A"))
+        ecuTv.setTextColor(Ui.GREEN)
         fun f(k: String, d: Int) = e[k]?.let { String.format(Locale("pt", "BR"), "%.${d}f", it) } ?: "--"
         ecuTv.text = "Central: ${f("rpm", 0)} rpm • pedal ${f("pedal1", 0)} % • ${f("agua", 0)} °C • inj. ${f("inj", 1)} ms"
     }
@@ -121,9 +121,14 @@ class DragPage(
     private val graph: GearGraphView
     val view: View
 
-    private fun tv(s: String, size: Float, color: Int = Color.WHITE, bold: Boolean = false) = TextView(act).apply {
+    private fun tv(s: String, size: Float, color: Int = Ui.TEXT, bold: Boolean = false) = TextView(act).apply {
         text = s; textSize = size; setTextColor(color); gravity = Gravity.CENTER
-        if (bold) setTypeface(typeface, Typeface.BOLD)
+        typeface = if (bold) Ui.BODY_MED else Ui.BODY
+    }
+
+    /** Título de seção: à esquerda, claro, sem caixa alta. */
+    private fun heading(s: String) = tv(s, 16f, Ui.TEXT, true).apply {
+        gravity = Gravity.START; setPadding(dp(2), dp(22), 0, dp(6))
     }
 
     private val dens = act.resources.displayMetrics.density
@@ -134,6 +139,7 @@ class DragPage(
         minWidth = 0; minimumWidth = 0; minHeight = dp(42); minimumHeight = dp(42)
         setPadding(dp(6), 0, dp(6), 0); textSize = 13f
         maxLines = 2
+        Ui.style(this, Ui.Kind.GHOST)
     }
 
     /** Número grande que encolhe para caber (Android 8+). */
@@ -145,23 +151,26 @@ class DragPage(
     }
 
     private fun row(vararg b: View) = LinearLayout(act).apply {
-        b.forEach { addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
+        setPadding(0, dp(4), 0, dp(4))
+        b.forEachIndexed { i, v ->
+            addView(v, LinearLayout.LayoutParams(0, -2, 1f).apply { if (i > 0) marginStart = dp(8) })
+        }
     }
 
     init {
-        val muted = Color.parseColor("#9AA4AE")
-        val col = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL; setPadding(8, 8, 8, 8) }
-        btnGps = btn("Ativar GPS") { toggleGps() }
+        val muted = Ui.MUTED
+        val col = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, dp(16)) }
+        btnGps = btn("Ativar GPS") { toggleGps() }.apply { Ui.style(this, Ui.Kind.PRIMARY) }
         btnRec = btn("● Gravar sessão") { toggleRec() }
         col.addView(row(btnGps, btnRec))
-        statusTv = tv("Toque em “Ativar GPS”. Conecte também na ECU para ter rotação e marcha.", 16f,
-            Color.parseColor("#FFB300"), true)
+        statusTv = tv("Toque em “Ativar GPS”. Conecte também na central para ter rotação e marcha.", 15f,
+            Ui.AMBER, true).apply { setPadding(dp(4), dp(8), dp(4), dp(4)) }
         col.addView(statusTv)
 
-        // velocidade + marcha lado a lado
-        val bigSp = if (act.resources.configuration.screenWidthDp < 400) 56 else 64
-        speedTv = tv("--", bigSp.toFloat(), Color.WHITE, true)
-        gearTv = tv("–", bigSp.toFloat(), Color.parseColor("#7CDB6A"), true)
+        // velocidade + marcha lado a lado, nos algarismos dos mostradores
+        val bigSp = if (act.resources.configuration.screenWidthDp < 400) 64 else 76
+        speedTv = tv("--", bigSp.toFloat(), Ui.TEXT, true).apply { Ui.num(this) }
+        gearTv = tv("–", bigSp.toFloat(), Ui.GREEN, true).apply { Ui.num(this) }
         val sp = LinearLayout(act).apply {
             orientation = LinearLayout.VERTICAL; addView(speedTv, big(speedTv, bigSp)); addView(tv("km/h (GPS)", 13f, muted))
         }
@@ -169,23 +178,23 @@ class DragPage(
             orientation = LinearLayout.VERTICAL; addView(gearTv, big(gearTv, bigSp)); addView(tv("marcha", 13f, muted))
         }
         col.addView(row(sp, gr))
-        ecuTv = tv("", 15f, Color.WHITE, true)
+        ecuTv = tv("", 15f, Ui.TEXT, true)
         col.addView(ecuTv)
         ui.post(ecuTick)
         gearInfo = tv("", 12f, muted)
         col.addView(gearInfo)
-        speedFindTv = tv("", 12f, Color.parseColor("#FFB300"))
+        speedFindTv = tv("", 12f, Ui.AMBER)
         col.addView(speedFindTv)
         col.addView(row(btn("Procurar velocidade de novo") {
             SpeedMap.clear(prefsCfg); finder.reset(); showSpeedFind()
         }))
 
         // 0–100
-        col.addView(tv("Cronômetro 0–100", 14f, muted).apply { setPadding(0, 16, 0, 0) })
-        clockTv = tv("0,00 s", 40f, Color.parseColor("#3FA9F5"), true)
-        col.addView(clockTv, big(clockTv, 40))
+        col.addView(heading("Cronômetro 0–100"))
+        clockTv = tv("0,00 s", 44f, Ui.TEXT, true).apply { Ui.num(this) }
+        col.addView(clockTv, big(clockTv, 44))
         // parciais em 3 colunas (cabe em tela estreita)
-        splitTvs = TARGETS.associateWith { tv("--", 20f, Color.WHITE, true) }
+        splitTvs = TARGETS.associateWith { tv("--", 22f, Ui.TEXT, true).apply { Ui.num(this) } }
         col.addView(row(*TARGETS.map { t ->
             LinearLayout(act).apply {
                 orientation = LinearLayout.VERTICAL
@@ -197,7 +206,7 @@ class DragPage(
         col.addView(gpsTv)
 
         // gráfico por marcha
-        col.addView(tv("Aceleração por marcha", 14f, muted).apply { setPadding(0, 16, 0, 0) })
+        col.addView(heading("Aceleração por marcha"))
         graph = GearGraphView(act, curve)
         col.addView(graph, LinearLayout.LayoutParams(-1, (act.resources.displayMetrics.density * 280).toInt()))
         btnFilter = btn("Filtro: só pé embaixo") { pedalFilter = !pedalFilter; updateFilterBtn() }
@@ -205,14 +214,14 @@ class DragPage(
         col.addView(row(btn("Recalibrar marchas") { gears.reset(); gearNow = 0; showGearInfo() }))
 
         // histórico 0–100
-        col.addView(tv("Histórico 0–100", 14f, muted).apply { setPadding(0, 16, 0, 4) })
-        histTv = tv("", 14f).apply { gravity = Gravity.START }
+        col.addView(heading("Histórico 0–100"))
+        histTv = tv("", 14f).apply { gravity = Gravity.START; Ui.num(this, false); setPadding(dp(2), 0, 0, 0) }
         col.addView(histTv)
         col.addView(tv(
             "⚠ Use apenas em local fechado e seguro. Deixe o celular preso no suporte e não mexa nele dirigindo.\n" +
                     "Marcha: o app aprende sozinho as relações do câmbio – rode uma vez passando por todas as marchas. " +
                     "A precisão depende do GPS (mais leituras/s = melhor).",
-            12f, muted).apply { setPadding(0, 20, 0, 0); gravity = Gravity.START })
+            12f, muted).apply { setPadding(dp(2), dp(20), dp(2), 0); gravity = Gravity.START; setLineSpacing(0f, 1.2f) })
         view = ScrollView(act).apply { addView(col) }
         showHistory(); showGearInfo(); updateFilterBtn(); showSpeedFind()
     }
@@ -259,14 +268,14 @@ class DragPage(
         }
         lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0L, 0f, this, Looper.getMainLooper())
         st = St.WAIT_STOP
-        btnGps.text = "Desligar GPS"
+        btnGps.text = "Desligar GPS"; Ui.style(btnGps, Ui.Kind.GHOST)
         statusTv.text = "Aguardando sinal do GPS..."
     }
 
     fun stopGps() {
         try { lm.removeUpdates(this) } catch (_: Exception) {}
         st = St.OFF
-        btnGps.text = "Ativar GPS"
+        btnGps.text = "Ativar GPS"; Ui.style(btnGps, Ui.Kind.PRIMARY)
         statusTv.text = "GPS desligado."
         ui.removeCallbacks(tick)
         if (recording) toggleRec()
@@ -425,11 +434,13 @@ class DragPage(
             rec.append(recKeys.joinToString(";")).append("\n")
             recording = true
             btnRec.text = "■ Parar gravação"
+            btnRec.setTextColor(Ui.RED)   // luz vermelha: está gravando
             statusTv.text = "Gravando sessão..."
             if (st == St.OFF) startGps()
         } else {
             recording = false
             btnRec.text = "● Gravar sessão"
+            Ui.style(btnRec, Ui.Kind.GHOST)
             if (recRows == 0) { statusTv.text = "Gravação vazia (sem leituras do GPS)."; return }
             try {
                 statusTv.text = "Sessão salva ($recRows linhas): " + save(rec.toString())
@@ -546,18 +557,21 @@ class GearCurve {
 
 /** Gráfico: aceleração (m/s²) × rotação, uma linha por marcha. */
 class GearGraphView(ctx: Context, private val curve: GearCurve) : View(ctx) {
-    private val colors = listOf("#3FA9F5", "#7CDB6A", "#FFB300", "#FF6B6B", "#C38CFF", "#4DD0E1").map { Color.parseColor(it) }
+    // uma cor por marcha (categorias, não alertas), com o mesmo brilho para nenhuma marcha "gritar" mais que outra
+    private val colors = listOf("#5AB4F0", "#4CC38A", "#F2B33D", "#E87A6E", "#B08CFF", "#4DD0E1").map { Color.parseColor(it) }
     // tamanhos em dp/sp convertidos para pixels (iguais em qualquer densidade de tela)
     private val d = ctx.resources.displayMetrics.density
     private val sd = ctx.resources.displayMetrics.scaledDensity
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2.5f * d }
     private val dot = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val grid = Paint().apply { color = Color.parseColor("#2C3138"); strokeWidth = 1f * d }
-    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 11f * sd; color = Color.parseColor("#9AA4AE") }
+    private val grid = Paint().apply { color = Ui.LINE; strokeWidth = 1f * d }
+    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = 11f * sd; color = Ui.MUTED; typeface = Ui.NUM_REG; fontFeatureSettings = "tnum"
+    }
 
     override fun onDraw(c: Canvas) {
         super.onDraw(c)
-        c.drawColor(Color.parseColor("#1E2228"))
+        c.drawColor(Ui.SURFACE)
         val l = 30f * d; val r = width - 8f * d; val top = 26f * d; val b = height - 22f * d
         val rpmMin = 1000.0; val rpmMax = 6500.0
         var aMax = 0.5
@@ -593,7 +607,7 @@ class GearGraphView(ctx: Context, private val curve: GearCurve) : View(ctx) {
             if (pts.size > 1) c.drawPath(path, line)
             txt.color = col
             c.drawText("${g}ª", lx, 16f * d, txt)
-            txt.color = Color.parseColor("#9AA4AE")
+            txt.color = Ui.MUTED
             lx += 30f * d
         }
     }

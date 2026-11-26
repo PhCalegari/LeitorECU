@@ -53,12 +53,14 @@ import java.util.concurrent.TimeUnit
 class MainActivity : Activity() {
 
     // ---------- cores ----------
-    private val BG = Color.parseColor("#121417")
-    private val CARD = Color.parseColor("#1E2228")
-    private val WARN = Color.parseColor("#FFB300")
-    private val MUTED = Color.parseColor("#9AA4AE")
-    private val C1 = Color.parseColor("#3FA9F5")
-    private val C2 = Color.parseColor("#FF8A3D")
+    // ---------- cores (ver Ui.kt: painel de instrumentos) ----------
+    private val BG = Ui.FACE
+    private val CARD = Ui.SURFACE
+    private val WARN = Ui.AMBER
+    private val MUTED = Ui.MUTED
+    private val C1 = Color.parseColor("#5AB4F0")   // série 1 do gráfico
+    private val C2 = Ui.NEEDLE                     // série 2 do gráfico
+    private var tach: TachView? = null
 
     private val ui = Handler(Looper.getMainLooper())
     private val br = Locale("pt", "BR")
@@ -98,7 +100,7 @@ class MainActivity : Activity() {
     private lateinit var btnDemo: Button
     private lateinit var btnDisc: Button
     private lateinit var pages: List<View>
-    private lateinit var tabs: List<Button>
+    private lateinit var tabs: List<TextView>
     private val valueViews = HashMap<String, TextView>()
     private lateinit var grid: GridLayout
     private lateinit var rate: TextView
@@ -148,10 +150,11 @@ class MainActivity : Activity() {
     // ---------- helpers de UI ----------
     private fun dp(v: Int) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
 
-    private fun text(s: String, size: Float = 14f, color: Int = Color.WHITE, bold: Boolean = false) =
+    private fun text(s: String, size: Float = 14f, color: Int = Ui.TEXT, bold: Boolean = false) =
         TextView(this).apply {
             this.text = s; textSize = size; setTextColor(color)
-            if (bold) setTypeface(typeface, Typeface.BOLD)
+            typeface = if (bold) Ui.BODY_MED else Ui.BODY
+            setLineSpacing(0f, 1.15f)
         }
 
     /** Tela estreita (celulares comuns em pé têm ~360–412 dp). */
@@ -166,6 +169,14 @@ class MainActivity : Activity() {
         textSize = if (narrow) 13f else 14f
         maxLines = 1
         ellipsize = android.text.TextUtils.TruncateAt.END
+        Ui.style(this, Ui.Kind.GHOST)
+    }
+
+    /** Linha de botões com espaço entre eles. */
+    private fun buttonRow(vararg b: View) = LinearLayout(this).apply {
+        b.forEachIndexed { i, v ->
+            addView(v, LinearLayout.LayoutParams(0, dp(44), 1f).apply { if (i > 0) marginStart = dp(8) })
+        }
     }
 
     /** Número que diminui sozinho para caber no card (Android 8+); altura fixa para não "pular". */
@@ -182,30 +193,42 @@ class MainActivity : Activity() {
         rebuildDashboard()   // recalcula tamanhos ao girar a tela
     }
 
-    private fun rounded(color: Int) = GradientDrawable().apply { setColor(color); cornerRadius = dp(10).toFloat() }
+    private fun rounded(color: Int) = Ui.panel(this, color)
 
-    private fun setStatus(s: String) = ui.post { status.text = s }
+    /** Status com uma "luz" colorida na frente (verde conectado, âmbar tentando, vermelho falha). */
+    private fun statusText(s: String): CharSequence {
+        val sp = android.text.SpannableString("●  $s")
+        sp.setSpan(android.text.style.ForegroundColorSpan(Ui.statusColor(s)), 0, 1, 0)
+        return sp
+    }
+
+    private fun setStatus(s: String) = ui.post { status.text = statusText(s) }
 
     private fun fmt(v: Double, dec: Int) = String.format(br, "%.${dec}f", v)
 
     private fun buildUi() {
         root = FrameLayout(this).apply { setBackgroundColor(BG) }
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(12), dp(12), dp(8)) }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(14), dp(16), dp(8)) }
         root.addView(col)
 
-        col.addView(text("LeitorECU • Clio 1.0 16V (SIM 32)", 18f, Color.WHITE, true))
-        status = text("Desconectado", 13f, MUTED).apply { setPadding(0, dp(4), 0, dp(8)) }
+        // cabeçalho: nome do app na fonte dos mostradores + o carro, sem enfeites
+        val head = LinearLayout(this).apply { gravity = Gravity.BOTTOM }
+        head.addView(text("LeitorECU", 24f, Ui.TEXT).apply { Ui.num(this) })
+        head.addView(text("Clio 1.0 16V, central SIM 32", 13f, MUTED).apply {
+            setPadding(dp(10), 0, 0, dp(3)); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        col.addView(head)
+        status = text("", 14f, Ui.TEXT).apply { setPadding(0, dp(6), 0, dp(10)); text = statusText("Desconectado") }
         col.addView(status)
 
-        val row = LinearLayout(this)
-        btnConnect = button("Conectar") { askPermissionsAndConnect() }
-        btnDemo = button("Demo") { connect(demo = true) }
+        btnConnect = button("Conectar") { askPermissionsAndConnect() }.apply { Ui.style(this, Ui.Kind.PRIMARY) }
+        btnDemo = button("Demo") { connect(demo = true) }.apply { Ui.style(this, Ui.Kind.QUIET) }
         btnDisc = button("Desconectar") { disconnect() }.apply { isEnabled = false }
-        listOf(btnConnect, btnDemo, btnDisc).forEach { row.addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
-        col.addView(row)
+        col.addView(buttonRow(btnConnect, btnDisc, btnDemo))
         col.addView(CheckBox(this).apply {
-            text = "Conectar automaticamente (ao abrir e quando cair)"
-            setTextColor(MUTED); textSize = 13f
+            text = "Conectar sozinho ao abrir e quando a conexão cair"
+            setTextColor(MUTED); textSize = 13f; typeface = Ui.BODY
+            setPadding(dp(4), dp(8), 0, dp(8))
             isChecked = autoPref()
             setOnCheckedChangeListener { _, on ->
                 getSharedPreferences("cfg", 0).edit().putBoolean("auto", on).apply()
@@ -214,17 +237,21 @@ class MainActivity : Activity() {
             }
         })
 
-        val tabRow = LinearLayout(this).apply { setPadding(0, dp(6), 0, dp(6)) }
+        val tabRow = LinearLayout(this).apply { setPadding(0, dp(2), 0, 0) }
         tabs = listOf("Painel", "Gráfico", "Pista", "Diag.", "Bytes", "Aprender").mapIndexed { i, s ->
-            button(s) { showPage(i) }.also {
-                it.setPadding(dp(2), 0, dp(2), 0)
+            TextView(this).apply {
+                text = s; gravity = Gravity.CENTER; maxLines = 1; textSize = 14f
+                setPadding(dp(2), 0, dp(2), 0)
+                isClickable = true; isFocusable = true
+                setOnClickListener { showPage(i) }
                 if (Build.VERSION.SDK_INT >= 26)
-                    it.setAutoSizeTextTypeUniformWithConfiguration(9, 14, 1, TypedValue.COMPLEX_UNIT_SP)
+                    setAutoSizeTextTypeUniformWithConfiguration(10, 14, 1, TypedValue.COMPLEX_UNIT_SP)
                 // altura fixa: o texto autoajustável do Android fica instável com altura "wrap_content"
-                tabRow.addView(it, LinearLayout.LayoutParams(0, dp(42), 1f))
+                tabRow.addView(this, LinearLayout.LayoutParams(0, dp(44), 1f))
             }
         }
         col.addView(tabRow)
+        col.addView(View(this), LinearLayout.LayoutParams(-1, dp(10)))
 
         val content = FrameLayout(this)
         col.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -238,7 +265,7 @@ class MainActivity : Activity() {
 
     private fun showPage(i: Int) {
         pages.forEachIndexed { j, v -> v.visibility = if (i == j) View.VISIBLE else View.GONE }
-        tabs.forEachIndexed { j, b -> b.alpha = if (i == j) 1f else 0.55f }
+        tabs.forEachIndexed { j, b -> Ui.tab(b, i == j) }
         fastMode = (i == 2)   // aba Pista
     }
 
@@ -247,28 +274,32 @@ class MainActivity : Activity() {
         val sv = ScrollView(this)
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         sv.addView(col)
-        val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         btnPause = button("Pausar") {
             monitoring = !monitoring
             btnPause.text = if (monitoring) "Pausar" else "Retomar"
         }.apply { isEnabled = false }
-        top.addView(btnPause, LinearLayout.LayoutParams(0, -2, 1f))
-        top.addView(button("Personalizar") { showCustomize() }, LinearLayout.LayoutParams(0, -2, 1f))
-        top.addView(button("Consumo") { showFuel() }, LinearLayout.LayoutParams(0, -2, 1f))
-        col.addView(top)
-        rate = text("", 12f, MUTED).apply { setPadding(dp(4), 0, 0, dp(2)) }
+        col.addView(buttonRow(btnPause, button("Personalizar") { showCustomize() }, button("Consumo") { showFuel() }))
+        rate = text("", 12f, MUTED).apply { setPadding(0, dp(6), 0, dp(6)); gravity = Gravity.END; Ui.num(this, false) }
         col.addView(rate)
         alertView = text("", 14f, WARN, true).apply {
-            setPadding(dp(8), dp(6), dp(8), dp(6)); background = rounded(Color.parseColor("#3A2A10"))
+            setPadding(dp(12), dp(10), dp(12), dp(10)); background = Ui.panel(this@MainActivity, Ui.AMBER_BG)
             visibility = View.GONE
             setOnClickListener { showPage(5) }
         }
-        col.addView(alertView)
+        col.addView(alertView, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
 
-        grid = GridLayout(this).apply { columnCount = 2 }
+        // placa única dividida por linhas finas, como a face de um painel de instrumentos
+        grid = GridLayout(this).apply {
+            columnCount = 2
+            background = Ui.panel(this@MainActivity, Ui.LINE)
+            clipToOutline = true
+            val hair = maxOf(1, (resources.displayMetrics.density * 0.75f).toInt())
+            setPadding(hair, hair, hair, hair)
+        }
         col.addView(grid)
-        col.addView(text("“provisório” = ainda precisa de confirmação. “bruto” = byte sem significado conhecido (0-255).",
-            12f, MUTED).apply { setPadding(dp(4), dp(8), dp(4), dp(8)) })
+        col.addView(text("● a confirmar: a posição ou a escala ainda não foi comprovada no carro.\n" +
+                "Byte bruto: valor de 0 a 255 que ainda não tem significado conhecido.",
+            12f, MUTED).apply { setPadding(dp(2), dp(10), dp(2), dp(12)) })
         rebuildDashboard()
         return sv
     }
@@ -284,36 +315,59 @@ class MainActivity : Activity() {
     private fun rebuildDashboard() {
         grid.removeAllViews()
         valueViews.clear()
+        tach = null
+        val hair = maxOf(1, (resources.displayMetrics.density * 0.75f).toInt())
+        fun cellLp(span: Int) = GridLayout.LayoutParams(
+            GridLayout.spec(GridLayout.UNDEFINED, GridLayout.FILL, 1f),
+            GridLayout.spec(GridLayout.UNDEFINED, span, GridLayout.FILL, 1f)
+        ).apply { width = 0; setMargins(hair, hair, hair, hair) }
+        // medidor pequeno sozinho na linha ocupa a linha toda (senão sobra um buraco na placa)
+        var colPos = 0
+        var lastSmall: View? = null
+        fun closeRow() { if (colPos == 1) lastSmall?.layoutParams = cellLp(2); colPos = 0 }
         for (cfg in dash) {
             val m = Modules.byKey(cfg.key) ?: continue
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                background = rounded(CARD)
-                setPadding(dp(12), dp(10), dp(12), dp(10))
+                setBackgroundColor(CARD)
+                setPadding(dp(14), dp(10), dp(14), dp(10))
             }
-            card.setPadding(dp(10), dp(8), dp(10), dp(8))
-            card.addView(text(m.name, if (cfg.big) 15f else 13f, MUTED).apply {
-                maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            // nome; "a confirmar" vira uma luzinha âmbar no fim do nome (como uma luz de aviso do painel)
+            val name = android.text.SpannableStringBuilder(m.name)
+            if (m.provisional && !m.raw) {
+                val s = name.length
+                name.append("  ●")
+                name.setSpan(android.text.style.ForegroundColorSpan(WARN), s, name.length, 0)
+                name.setSpan(android.text.style.RelativeSizeSpan(0.8f), s, name.length, 0)
+            }
+            card.addView(text("", if (cfg.big) 15f else 13f, MUTED).apply {
+                text = name; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             })
-            val maxSp = if (cfg.big) (if (narrow) 44 else 52) else (if (narrow) 26 else 30)
-            val v = text("--", maxSp.toFloat(), Color.WHITE, true)
+            val maxSp = if (cfg.big) (if (narrow) 52 else 60) else (if (narrow) 28 else 32)
+            val v = text("--", maxSp.toFloat(), Ui.TEXT).apply { Ui.num(this) }
             card.addView(v, fitText(v, maxSp))
-            val tag = when {
-                m.raw -> "  • não identificado"
-                m.provisional -> "  • provisório"
-                else -> ""
+            if (cfg.key == "rpm") {
+                // o elemento marcante: conta-giros com a faixa vermelha
+                val t = TachView(this)
+                card.addView(t, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2); bottomMargin = dp(2) })
+                tach = t
             }
-            card.addView(text(m.unit + tag, 12f, if (m.provisional) WARN else MUTED))
+            val unit = if (m.raw) "byte bruto (0–255)" else m.unit
+            card.addView(text(unit, 12f, MUTED).apply { maxLines = 2 })
             valueViews[cfg.key] = v
-            val span = if (cfg.big) 2 else 1
-            val lp = GridLayout.LayoutParams(
-                GridLayout.spec(GridLayout.UNDEFINED, 1f),
-                GridLayout.spec(GridLayout.UNDEFINED, span, 1f)
-            )
-            lp.width = 0; lp.setMargins(dp(4), dp(4), dp(4), dp(4))
-            grid.addView(card, lp)
+            if (cfg.big) {
+                closeRow()
+                grid.addView(card, cellLp(2))
+            } else {
+                grid.addView(card, cellLp(1))
+                lastSmall = card
+                colPos = (colPos + 1) % 2
+            }
         }
-        if (dash.isEmpty()) grid.addView(text("Nenhum medidor. Toque em Personalizar.", 14f, MUTED))
+        closeRow()
+        if (dash.isEmpty()) grid.addView(text("O Painel está vazio. Toque em Personalizar para escolher os medidores.", 14f, MUTED)
+            .apply { setBackgroundColor(CARD); setPadding(dp(14), dp(14), dp(14), dp(14)) },
+            GridLayout.LayoutParams(GridLayout.spec(0), GridLayout.spec(0, 2, 1f)).apply { width = 0 })
     }
 
     /** Lista para escolher medidores: marcar, ordenar (▲▼) e deixar grande. */
@@ -437,12 +491,15 @@ class MainActivity : Activity() {
         r.addView(spin1, LinearLayout.LayoutParams(0, -2, 1f))
         r.addView(spin2, LinearLayout.LayoutParams(0, -2, 1f))
         col.addView(r)
-        val r2 = LinearLayout(this)
-        for (s in listOf(30, 60, 120)) r2.addView(button("${s}s") { graph.windowSec = s; graph.invalidate() },
-            LinearLayout.LayoutParams(0, -2, 1f))
-        col.addView(r2)
+        // janela de tempo: a escolhida fica destacada (um seletor, não três ações)
+        val wins = listOf(30, 60, 120)
+        lateinit var winBtns: List<Button>
+        fun mark(sel: Int) = winBtns.forEachIndexed { i, b -> Ui.style(b, if (wins[i] == sel) Ui.Kind.PRIMARY else Ui.Kind.GHOST) }
+        winBtns = wins.map { s -> button("$s s") { graph.windowSec = s; graph.invalidate(); mark(s) } }
+        col.addView(buttonRow(*winBtns.toTypedArray()), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         graph = GraphView(this)
-        col.addView(graph, LinearLayout.LayoutParams(-1, 0, 1f))
+        mark(graph.windowSec)
+        col.addView(graph, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(10) })
         col.addView(text("Azul = 1º valor, laranja = 2º. Cada linha tem sua própria escala.", 12f, MUTED)
             .apply { setPadding(dp(4), dp(6), dp(4), dp(4)) })
         refreshGraphChoices()
@@ -488,11 +545,12 @@ class MainActivity : Activity() {
         val sv = ScrollView(this)
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         sv.addView(col)
-        val r = LinearLayout(this)
-        r.addView(button("Ler códigos") { readDtcs("03") }, LinearLayout.LayoutParams(0, -2, 1f))
-        r.addView(button("Pendentes") { readDtcs("07") }, LinearLayout.LayoutParams(0, -2, 1f))
-        r.addView(button("Apagar") { confirmClear() }, LinearLayout.LayoutParams(0, -2, 1f))
-        col.addView(r)
+        // "Apagar" é a ação que não tem volta: texto vermelho
+        val clear = button("Apagar") { confirmClear() }.apply {
+            setTextColor(android.content.res.ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
+                intArrayOf(Color.parseColor("#56616C"), Ui.RED)))
+        }
+        col.addView(buttonRow(button("Ler códigos") { readDtcs("03") }, button("Pendentes") { readDtcs("07") }, clear))
         diagOut = text("Conecte e toque em “Ler códigos”.", 15f).apply {
             background = rounded(CARD); setPadding(dp(12), dp(12), dp(12), dp(12))
         }
@@ -556,10 +614,8 @@ class MainActivity : Activity() {
         val sv = ScrollView(this)
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         sv.addView(col)
-        val r = LinearLayout(this)
-        r.addView(button("Captura guiada") { startGuided() }, LinearLayout.LayoutParams(0, -2, 1f))
-        r.addView(button("Zerar mín/máx") { synchronized(stats) { stats.clear() } }, LinearLayout.LayoutParams(0, -2, 1f))
-        col.addView(r)
+        col.addView(buttonRow(button("Captura guiada") { startGuided() },
+            button("Zerar mín/máx") { synchronized(stats) { stats.clear() } }))
         col.addView(text("byte: hex dec [mín-máx]   * = variou   ✓ = já identificado", 12f, MUTED)
             .apply { setPadding(dp(4), dp(6), 0, dp(4)) })
         rawView = text("--", 12f).apply { typeface = Typeface.MONOSPACE }
@@ -821,6 +877,7 @@ class MainActivity : Activity() {
             h.addLast(now to v)
             while (h.isNotEmpty() && now - h.first.first > 125_000) h.removeFirst()
             valueViews[k]?.text = m.text?.invoke(v) ?: fmt(v, m.dec)
+            if (k == "rpm") tach?.rpm = v
         }
         latest = Modules.known.mapNotNull { m -> m.read(b)?.let { m.key to it } }.toMap() +
                 ("_t" to System.currentTimeMillis().toDouble())   // hora da última leitura da central

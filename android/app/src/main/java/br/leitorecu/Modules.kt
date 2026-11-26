@@ -194,13 +194,15 @@ class GraphView(ctx: Context) : View(ctx) {
     private val br = Locale("pt", "BR")
     private val d = ctx.resources.displayMetrics.density
     private val sd = ctx.resources.displayMetrics.scaledDensity
-    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * d }
-    private val grid = Paint().apply { color = Color.parseColor("#2C3138"); strokeWidth = 1f * d }
-    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 13f * sd }
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = 2f * d; strokeJoin = Paint.Join.ROUND
+    }
+    private val grid = Paint().apply { color = Ui.LINE; strokeWidth = 1f * d }
+    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 13f * sd; typeface = Ui.NUM_REG; fontFeatureSettings = "tnum" }
 
     override fun onDraw(c: Canvas) {
         super.onDraw(c)
-        c.drawColor(Color.parseColor("#1E2228"))
+        c.drawColor(Ui.SURFACE)
         val w = width.toFloat()
         val h = height.toFloat()
         val top = 48f * d
@@ -210,7 +212,7 @@ class GraphView(ctx: Context) : View(ctx) {
             c.drawLine(0f, y, w, y, grid)
         }
         if (series.isEmpty()) {
-            txt.color = Color.parseColor("#9AA4AE")
+            txt.color = Ui.MUTED
             c.drawText("Escolha um valor para o gráfico.", 8f * d, h / 2, txt)
             return
         }

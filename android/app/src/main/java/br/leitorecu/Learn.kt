@@ -500,7 +500,7 @@ object Health {
             alert(m) != null -> "  ⚠"
             else -> "  ✓"
         }
-        return "${m.name}: agora $cs • $bs$mark"
+        return "${m.name}: agora $cs, $bs$mark"
     }
 
     fun reset() {
@@ -518,31 +518,46 @@ class LearnPage(
     private val ui = Handler(Looper.getMainLooper())
     private val dens = act.resources.displayMetrics.density
     private fun dp(v: Int) = (v * dens).toInt()
-    private val muted = Color.parseColor("#9AA4AE")
-    private val warn = Color.parseColor("#FFB300")
-    private val green = Color.parseColor("#7CDB6A")
+    private val muted = Ui.MUTED
+    private val warn = Ui.AMBER
+    private val green = Ui.GREEN
     private var tone: ToneGenerator? = try { ToneGenerator(AudioManager.STREAM_MUSIC, 80) } catch (_: Exception) { null }
 
-    private fun tv(s: String, size: Float, color: Int = Color.WHITE, bold: Boolean = false) = TextView(act).apply {
+    private fun tv(s: String, size: Float, color: Int = Ui.TEXT, bold: Boolean = false) = TextView(act).apply {
         text = s; textSize = size; setTextColor(color)
-        if (bold) setTypeface(typeface, Typeface.BOLD)
-        setPadding(dp(4), dp(4), dp(4), dp(4))
+        typeface = if (bold) Ui.BODY_MED else Ui.BODY
+        setLineSpacing(0f, 1.2f)
+        setPadding(dp(2), dp(3), dp(2), dp(3))
     }
 
     private fun btn(s: String, f: () -> Unit) = Button(act).apply {
         text = s; isAllCaps = false; setOnClickListener { f() }
-        minWidth = 0; minimumWidth = 0; minHeight = dp(42); minimumHeight = dp(42)
-        setPadding(dp(4), 0, dp(4), 0); textSize = 13f; maxLines = 2
+        minWidth = 0; minimumWidth = 0; minHeight = dp(44); minimumHeight = dp(44)
+        setPadding(dp(6), 0, dp(6), 0); textSize = 13f; maxLines = 2
+        Ui.style(this, Ui.Kind.GHOST)
     }
 
-    private fun card() = LinearLayout(act).apply {
+    /** Botão discreto (ações secundárias como zerar). */
+    private fun quiet(s: String, f: () -> Unit) = btn(s, f).apply { Ui.style(this, Ui.Kind.QUIET); gravity = Gravity.CENTER_VERTICAL or Gravity.START }
+
+    /**
+     * Seção. Só a saúde do motor (o que o app conclui) fica numa placa; o resto são seções separadas por
+     * uma linha fina – a hierarquia aparece na estrutura, não em caixas iguais.
+     */
+    private fun card(panel: Boolean = false) = LinearLayout(act).apply {
         orientation = LinearLayout.VERTICAL
-        background = GradientDrawable().apply { setColor(Color.parseColor("#1E2228")); cornerRadius = dp(10).toFloat() }
-        setPadding(dp(10), dp(8), dp(10), dp(8))
+        if (panel) {
+            background = Ui.panel(act)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+        } else setPadding(dp(2), dp(14), dp(2), dp(10))
     }
 
-    private fun LinearLayout.addCard(c: View) =
-        addView(c, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(4), 0, dp(4)) })
+    private var sections = 0
+    private fun LinearLayout.addCard(c: View) {
+        if (sections++ > 0) addView(View(act).apply { setBackgroundColor(Ui.LINE) },
+            LinearLayout.LayoutParams(-1, maxOf(1, dp(1) * 3 / 4)).apply { topMargin = dp(6) })
+        addView(c, LinearLayout.LayoutParams(-1, -2))
+    }
 
     val view: View
     private val countTv: TextView
@@ -557,33 +572,38 @@ class LearnPage(
     private var lastRefresh = 0L
 
     init {
-        val col = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(4), dp(4), dp(4), dp(4)) }
+        val col = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, dp(16)) }
         view = ScrollView(act).apply { addView(col) }
 
-        // ---- saúde ----
-        val h = card()
-        h.addView(tv("Saúde do motor (o normal do SEU carro)", 16f, Color.WHITE, true))
-        alertTv = tv("", 15f, warn, true)
+        // ---- saúde: o que o app conclui fica na placa ----
+        val h = card(panel = true)
+        h.addView(tv("Saúde do motor", 17f, Ui.TEXT, true))
+        h.addView(tv("Comparado com o normal do seu carro, aprendido nas últimas viagens.", 12f, muted))
+        alertTv = tv("", 15f, warn, true).apply { setPadding(dp(2), dp(8), dp(2), dp(4)) }
         h.addView(alertTv)
-        healthTv = tv("", 13f)
+        healthTv = tv("", 13f).apply { Ui.num(this, false); textSize = 14f; setPadding(dp(2), dp(8), dp(2), dp(8)) }
         h.addView(healthTv)
-        h.addView(tv("O app guarda a mediana de cada viagem e, depois de 3 viagens, avisa quando algo foge do normal. " +
-                "Zere depois de um conserto (ex.: troca de vela ou termostática).", 12f, muted))
-        h.addView(btn("Zerar o normal") { confirm("Apagar o normal aprendido?") { Health.reset(); refresh(true) } })
+        h.addView(tv("Depois de 3 viagens o app passa a avisar quando algo foge do normal. " +
+                "Depois de um conserto (vela, termostática…), zere para ele reaprender.", 12f, muted))
+        h.addView(quiet("Zerar o normal") { confirm("Apagar o normal aprendido?") { Health.reset(); refresh(true) } },
+            LinearLayout.LayoutParams(-2, dp(40)))
         col.addCard(h)
 
         // ---- eventos ----
         val e = card()
-        e.addView(tv("Ensinar o app", 16f, Color.WHITE, true))
+        e.addView(tv("Ensinar o app", 17f, Ui.TEXT, true))
         e.addView(tv("Com o motor ligado e o carro parado, toque no item, espere a contagem e, no “AGORA”, " +
                 "ligue OU desligue aquilo. O app procura o que mudou na central no mesmo instante. " +
                 "Repita 2–3 vezes (ligando e desligando) para confirmar. " +
                 "Ventoinha é diferente: em lenta, toque assim que ouvir ela ligar ou desligar (sem contagem).", 12f, muted))
         val grid = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
         Learner.LABELS.chunked(2).forEach { pair ->
-            val r = LinearLayout(act)
-            pair.forEach { l -> r.addView(btn(l) { startCount(l) }, LinearLayout.LayoutParams(0, -2, 1f)) }
-            if (pair.size == 1) r.addView(View(act), LinearLayout.LayoutParams(0, 1, 1f))
+            val r = LinearLayout(act).apply { setPadding(0, dp(4), 0, dp(4)) }
+            pair.forEachIndexed { i, l ->
+                r.addView(btn(l) { startCount(l) },
+                    LinearLayout.LayoutParams(0, -2, 1f).apply { if (i > 0) marginStart = dp(8) })
+            }
+            if (pair.size == 1) r.addView(View(act), LinearLayout.LayoutParams(0, 1, 1f).apply { marginStart = dp(8) })
             grid.addView(r)
         }
         e.addView(grid)
@@ -595,32 +615,32 @@ class LearnPage(
 
         // ---- aprendido ----
         val l = card()
-        l.addView(tv("O que o app já aprendeu", 16f, Color.WHITE, true))
+        l.addView(tv("O que o app já aprendeu", 17f, Ui.TEXT, true))
         learnedBox = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
         l.addView(learnedBox)
         col.addCard(l)
 
         val fc = card()
-        fc.addView(tv("Ventoinha × temperatura da água", 15f, Color.WHITE, true))
+        fc.addView(tv("Ventoinha × temperatura da água", 15f, Ui.TEXT, true))
         fanTv = tv("", 13f); fc.addView(fanTv)
         col.addCard(fc)
 
         val cc = card()
-        cc.addView(tv("Partida a frio (água × ar)", 15f, Color.WHITE, true))
+        cc.addView(tv("Partida a frio (água × ar)", 15f, Ui.TEXT, true))
         coldTv = tv("", 13f); cc.addView(coldTv)
         col.addCard(cc)
 
         val sc = card()
-        sc.addView(tv("Adaptações (bytes que mudam entre dias)", 15f, Color.WHITE, true))
-        slowTv = tv("", 13f).apply { typeface = Typeface.MONOSPACE; textSize = 12f }
+        sc.addView(tv("Adaptações (bytes que mudam entre dias)", 15f, Ui.TEXT, true))
+        slowTv = tv("", 13f).apply { Ui.num(this, false) }
         sc.addView(slowTv)
         col.addCard(sc)
 
         col.addCard(card().apply {
             addView(tv("Relação das marchas: aprendida e salva automaticamente na aba Pista.", 13f, muted))
-            addView(btn("Apagar eventos aprendidos") {
+            addView(quiet("Apagar o que foi aprendido") {
                 confirm("Apagar eventos, ventoinha, partida a frio e adaptações?") { Learner.resetAll(); refresh(true) }
-            })
+            }.apply { setTextColor(Ui.RED) }, LinearLayout.LayoutParams(-2, dp(40)))
         })
         refresh(true)
     }
@@ -702,7 +722,7 @@ class LearnPage(
                 best.confirmed -> "$label ✓ ${best.describe()}"
                 else -> "$label: ainda incerto ($ev vez(es)). Candidatos:\n" + cs.joinToString("\n") { "   " + it.describe() }
             }
-            learnedBox.addView(tv(head, 13f, if (best?.confirmed == true) green else Color.WHITE))
+            learnedBox.addView(tv(head, 13f, if (best?.confirmed == true) green else Ui.TEXT))
             val bit = Learner.learnedBit(label)
             if (bit != null) {
                 val key = "bit:%02X:%d:%d:%s".format(bit.lid, bit.byte, bit.bit, label)
