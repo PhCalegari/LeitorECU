@@ -63,6 +63,8 @@ Os índices são do byte de dados, depois do `61 xx`. As referências vêm do ma
 | Injeção ativa (corte na desaceleração) | `21A2` 2, bit 7 | 1 = injetando, 0 = corte | 🟡 vai a 0 ao soltar o pedal acima de ~1.000 rpm |
 | Regulação de marcha lenta ativa | `21A2` 2, bit 6 | 1 = ativa | 🟡 1 em marcha lenta, 0 ao acelerar |
 | Pé levantado | `21A0` 0, bit 6 | 1 = pedal solto | 🟡 vai a 0 ao pisar, mesmo com o motor desligado |
+| Marcha lenta desejada (PR041) | `21A2` 17–18 | valor direto (rpm) | ✅ 752: exatamente o valor do manual ("PR041 = 752 r.p.m.") |
+| Pedal solto aprendido (PR008) | `21A3` 16 | × 100/256 % | ✅ 14,1 % (manual: 14 %) |
 | Cópias da rotação | `21A3` 9–10 e `21A4` 10–11 | valor direto (rpm) | ✅ mesmo valor de `21A2` 7–8 |
 | Velocidade | ? | ? | ❌ falta uma captura andando |
 

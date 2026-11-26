@@ -227,11 +227,12 @@ class DemoLink : Link() {
                 b[14] = ((46 + 40) / 0.625).toInt()                          // ar
                 b[15] = ((13.7 - 8) / 0.032).toInt()                         // bateria
                 b[16] = 138
+                b[17] = 2; b[18] = 240                                         // PR041 = 752
                 b[20] = (36 + 193 * rev * 0.4).toInt(); b[21] = b[20] + 2           // pistas do pedal
                 "61A2" + hex(b)
             }
             c == "21A3" -> {
-                val b = IntArray(24); b[15] = (36 + 193 * rev * 0.4).toInt(); b[18] = (32 + 10 * rev).toInt(); "61A3" + hex(b)
+                val b = IntArray(24); b[15] = (36 + 193 * rev * 0.4).toInt(); b[18] = (32 + 10 * rev).toInt(); b[16] = 36; "61A3" + hex(b)
             }
             c == "21A4" -> {
                 val b = IntArray(24)

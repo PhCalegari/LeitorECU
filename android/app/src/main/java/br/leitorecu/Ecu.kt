@@ -203,6 +203,10 @@ object RenaultMap {
         Signal("avanco", "Avanço ignição", "°", 0xA4, 15, 1, 1, false) { it * 0.375 - 23.625 },
         Signal("inj", "Tempo injeção", "ms", 0xA4, 13, 2, 2, false) { it * 0.004 },
         Signal("lambda", "Sonda lambda", "V", 0xA2, 11, 1, 2, false) { it * 0.00976 },
+        // PR041 rotação de marcha lenta desejada: manual "PR041 = 752 r.p.m." – medido exatamente 752
+        Signal("rpm_alvo", "Marcha lenta desejada", "rpm", 0xA2, 17, 2, 0, false) { it.toDouble() },
+        // PR008 posição aprendida do pedal solto: manual 14 % – medido 36 × 100/256 = 14,1 %
+        Signal("pedal_aprend", "Pedal solto (aprendido)", "%", 0xA3, 16, 1, 1, false) { it * 100.0 / 256 },
         // PR017 borboleta medida: 12,1–12,9 % em marcha lenta (manual: 12 %). 0 com motor parado.
         Signal("borb", "Borboleta medida", "%", 0xA3, 18, 1, 1, true) { it * 100.0 / 256 },
         // Estados (bits) – deduzidos das capturas, coerentes amostra a amostra
