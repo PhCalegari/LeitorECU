@@ -65,7 +65,7 @@ class MainActivity : Activity() {
 
     /**
      * Bloco da sonda como medidor de lambda: λ estimado pela média de 3 s da sonda (para de pular),
-     * AFR na gasolina brasileira, LEDs 0,90–1,10 e etiqueta RICA / IDEAL / POBRE / CORTE + média de 30 s.
+     * AFR na gasolina brasileira, LEDs 0,90–1,10 e etiqueta RICA / IDEAL / POBRE / CORTE + média de 10 s.
      */
     private fun showMixInLambda(v: Double, b: Map<Int, ByteArray>) {
         val cut = RenaultMap.fuelCut(b)                          // corte de verdade: injeção ~0 ms
@@ -102,9 +102,9 @@ class MainActivity : Activity() {
             else "  AFR ${fmt(lam * LambdaWatch.AFR_STOICH, 1)}  (${fmt(v, 2)} V)"
         val line2 = when {
             cut -> ""
-            m == null -> "\nmédia 30 s: juntando…"
+            m == null -> "\nmédia 10 s: juntando…"
             m == LambdaWatch.MIX_COLD -> "\nmotor frio: mistura enriquecida"
-            else -> "\ncorreção 30 s: ${LambdaWatch.mixLabel(m)}"
+            else -> "\ncorreção 10 s: ${LambdaWatch.mixLabel(m)}"
         }
         // etiqueta: texto branco sobre a cor do estado, legível sobre o bloco colorido
         val tag = " $word "
@@ -181,6 +181,10 @@ class MainActivity : Activity() {
     @Volatile private var fastMode = false
     private var fastCount = 0
     private val FAST_LIDS = listOf(0xA2, 0xA4)
+    /** Blocos além de 21A0–21A4 que responderam certinho ao conectar (lidos a cada 3 voltas no Painel). */
+    @Volatile private var extraLids = emptyList<Int>()
+    private var extraCount = 0
+    private var extraInfo = ""
 
     // Painel configurável
     private lateinit var dash: MutableList<CardCfg>
@@ -559,7 +563,7 @@ class MainActivity : Activity() {
             val unitTv = if (cfg.key != "rpm")
                 text(if (m.raw) "byte bruto 0–255" else m.unit, 11f, MUTED).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
             else null
-            if (cfg.key == "lambda") unitTv?.maxLines = 2   // AFR + correção de 30 s
+            if (cfg.key == "lambda") unitTv?.maxLines = 2   // AFR + correção de 10 s
             unitTv?.let { card.addView(it) }
             valueViews[cfg.key] = v
             tiles[cfg.key] = Tile(card, label, v, unitTv)
@@ -1001,8 +1005,21 @@ class MainActivity : Activity() {
         setStatus("Lendo identificação e blocos Renault...")
         val id = e.ident()
         lids = RenaultMap.LIDS.filter { e.renaultRead(it) != null }
+        // blocos extras: antes voltavam embaralhados no clone; com o modo "1 resposta" podem vir inteiros.
+        // Só aceita o bloco se vier igual duas vezes (cabeçalho 61xx certo e mesmo tamanho) – nada de lixo.
+        setStatus("Testando blocos extras 21A5–21AF...")
+        val found = ArrayList<Pair<Int, Int>>()
+        for (lid in 0xA5..0xAF) {
+            val a = e.renaultRead(lid) ?: continue
+            val b = e.renaultRead(lid) ?: continue
+            if (a.size == b.size && a.size >= 2) found.add(lid to a.size)
+        }
+        extraLids = found.map { it.first }
+        lids = lids + extraLids
+        extraInfo = if (found.isEmpty()) "Blocos extras (21A5–21AF): nenhum respondeu"
+        else "Blocos extras: " + found.joinToString(", ") { "21%02X (%d bytes)".format(it.first, it.second) }
         // uma informação por linha (antes vinham emendadas com "•")
-        ui.post { identView.text = (id?.replace(" • ", "\n") ?: "--") + "\n\n${e.version}\n${e.protocolName}" }
+        ui.post { identView.text = (id?.replace(" • ", "\n") ?: "--") + "\n\n${e.version}\n${e.protocolName}\n\n$extraInfo" }
         misses = 0
     }
 
@@ -1012,7 +1029,8 @@ class MainActivity : Activity() {
         monitoring = true
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setConnectedUi(true)
-        setStatus(if (link is DemoLink) "Conectado: Demo, dados simulados" else "Conectado – ${elm?.protocolName ?: ""}")
+        val extra = if (extraLids.isEmpty()) "" else " + ${extraLids.size} bloco(s) extra(s)"
+        setStatus(if (link is DemoLink) "Conectado: Demo, dados simulados" else "Conectado – ${elm?.protocolName ?: ""}$extra")
     }
 
     private fun disconnect() {
@@ -1080,8 +1098,11 @@ class MainActivity : Activity() {
         val snap = HashMap<Int, ByteArray>()
         // durante a captura guiada lê tudo (o CSV precisa de todos os bytes)
         // enquanto a velocidade não foi descoberta, lê tudo (a busca precisa de todos os bytes atualizados)
+        // blocos extras só a cada 3 voltas (e sempre na captura guiada), para não deixar a leitura lenta
+        val withExtras = phase != null || extraCount++ % 3 == 0
         val readNow = if (fastMode && SpeedMap.known && phase == null && (fastCount++ % 5 != 0))
-            lids.filter { it in FAST_LIDS || it == SpeedMap.lid }.ifEmpty { lids } else lids
+            lids.filter { it in FAST_LIDS || it == SpeedMap.lid }.ifEmpty { lids }
+        else if (withExtras) lids else lids.filter { it !in extraLids }
         for (lid in readNow) {
             if (!monitoring) return
             val d = e.renaultRead(lid) ?: continue

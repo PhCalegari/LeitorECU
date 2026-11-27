@@ -22,7 +22,7 @@ class Module(
 )
 
 /**
- * Acompanha a sonda lambda dianteira nos últimos ~12 s (ignorando o corte de injeção, em que ela
+ * Acompanha a sonda lambda dianteira nos últimos ~8 s (ignorando o corte de injeção, em que ela
  * cai naturalmente para ~0,05–0,1 V). Com o motor quente em malha fechada ela deve OSCILAR entre
  * ~0,1 V (pobre) e ~0,9 V (rica).
  */
@@ -38,7 +38,7 @@ object LambdaWatch {
         if (RenaultMap.fuelCut(b)) return            // corte de injeção: leitura baixa é normal
         if (v > 1.2) return                          // sonda fria / sem sinal
         h.addLast(now to v)
-        while (h.isNotEmpty() && now - h.first().first > 12_000) h.removeFirst()
+        while (h.isNotEmpty() && now - h.first().first > 8_000) h.removeFirst()   // 8 s: com a leitura rápida já são ~20 amostras
     }
 
     /** Média da sonda nos últimos [ms] (sem os cortes de injeção). Com a sonda oscilando, fica perto de 0,45 V. */
@@ -85,7 +85,7 @@ object LambdaWatch {
         }
     }
 
-    // ---- correção da riqueza (PR035, 128 = neutro) nos últimos 30 s, só com injeção ativa e motor quente ----
+    // ---- correção da riqueza (PR035, 128 = neutro) nos últimos 10 s (reage rápido, ainda filtra os pulos), só com injeção ativa e motor quente ----
     private val corr = ArrayDeque<Pair<Long, Double>>()
 
     fun feedMix(b: Map<Int, ByteArray>) {
@@ -96,7 +96,7 @@ object LambdaWatch {
         if (rpm < 500 || (water != null && water < 65)) { corr.clear(); return }
         if (!RenaultMap.closedLoop(b) || c == 128.0) return   // malha aberta: correção fica parada em 128
         corr.addLast(now to c)
-        while (corr.isNotEmpty() && now - corr.first().first > 30_000) corr.removeFirst()
+        while (corr.isNotEmpty() && now - corr.first().first > 10_000) corr.removeFirst()
     }
 
     /** Correção média em % (positivo = central adicionando combustível, motor tendendo a pobre). */
@@ -144,8 +144,8 @@ object Modules {
         Module("avg5_kml", "Consumo médio (5 min)", "km/L", 1, true, false) { _ -> Fuel.avg5Kml() },
         Module("avg5_lh", "Consumo médio (5 min)", "L/h", 2, true, false) { _ -> Fuel.avg5Lh() },
         Module("trip_kml", "Média da viagem", "km/L", 1, true, false) { _ -> Fuel.avgKml() },
-        // estado da sonda dianteira nos últimos ~10 s: 2 = oscilando OK, 1 = rica, 0 = pobre, -1 = parada
-        // mistura: média da correção da riqueza (PR035) em 30 s; + = central adicionando combustível
+        // estado da sonda dianteira nos últimos ~8 s: 2 = oscilando OK, 1 = rica, 0 = pobre, -1 = parada
+        // mistura: média da correção da riqueza (PR035) em 10 s; + = central adicionando combustível
         // indicador na hora pela sonda dianteira: > 0,45 V rica, < 0,45 V pobre; -1 = corte de injeção
         Module("mix_now", "Mistura agora", "sonda dianteira", 2, false, false,
             text = { v -> when { v < 0 -> "CORTE"; v > 0.45 -> "RICA"; else -> "POBRE" } }) { b ->
@@ -156,9 +156,9 @@ object Modules {
                 else -> lam
             }
         },
-        Module("mistura", "Mistura", "correção média 30 s (+ = central adicionando combustível)", 0, false, false,
+        Module("mistura", "Mistura", "correção média 10 s (+ = central adicionando combustível)", 0, false, false,
             text = { LambdaWatch.mixLabel(it) }) { b -> LambdaWatch.mix(b) },
-        Module("lambda_st", "Sonda lambda (estado)", "últimos 12 s, motor quente", 0, false, false,
+        Module("lambda_st", "Sonda lambda (estado)", "últimos 8 s, motor quente", 0, false, false,
             text = { LambdaWatch.label(it) }) { b -> LambdaWatch.state(b) },
         Module("trip_l", "Combustível gasto", "L (viagem)", 2, true, false) { _ -> Fuel.tripL },
         Module("trip_km", "Distância", "km (viagem, GPS)", 1, true, false) { _ -> Fuel.tripKm },

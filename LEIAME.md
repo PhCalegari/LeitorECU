@@ -120,9 +120,9 @@ Com a opção **Conectar automaticamente** marcada (padrão), o app conecta sozi
 
 ## Mistura e sonda lambda (app Android)
 A sonda original é **de banda estreita**: indica só se a mistura está rica (~0,8–0,9 V) ou pobre (~0,1–0,2 V) em relação ao ideal, e não a relação ar/combustível exata. Por isso o app mostra:
-- **Sonda lambda (estado)**: "Oscilando ✓", "Rica", "Pobre", "Parada ⚠" ou "Motor frio", olhando os últimos 12 s e ignorando os cortes de injeção (em que a sonda cai naturalmente para ~0,05–0,1 V);
-- **Indicador no bloco da sonda (Painel)**: barra de LEDs de 0 a 1 V (azul = pobre, verde = 0,45 V ideal, vermelho = rica) e etiqueta RICA / POBRE / CORTE (corte = pé fora do acelerador), com a média de 30 s ao lado. Com o motor quente é normal alternar entre rica e pobre várias vezes por segundo; problema é ficar parado num lado ou a média passar de ±10 %;
-- **Mistura**: média de 30 s da correção da riqueza (PR035, com 128 = neutro), em %. Positivo quer dizer que a central está adicionando combustível (o motor tende a ficar pobre). Até ±10 % aparece "OK", de 10 a 20 % "tendência", e acima de 20 % um alerta.
+- **Sonda lambda (estado)**: "Oscilando ✓", "Rica", "Pobre", "Parada ⚠" ou "Motor frio", olhando os últimos 8 s e ignorando os cortes de injeção (em que a sonda cai naturalmente para ~0,05–0,1 V);
+- **Indicador no bloco da sonda (Painel)**: λ estimado (média de 3 s), AFR, LEDs de λ 0,90 a 1,10 (vermelho rica, verde ideal, azul pobre) e etiqueta IDEAL / RICA / POBRE / ENRIQUECENDO / MALHA ABERTA / CORTE, com a correção média de 10 s ao lado. Com o motor quente é normal a sonda alternar entre rica e pobre várias vezes por segundo; problema é ficar parada num lado ou a correção passar de ±10 %;
+- **Mistura**: média de 10 s da correção da riqueza (PR035, com 128 = neutro), em %. Positivo quer dizer que a central está adicionando combustível (o motor tende a ficar pobre). Até ±10 % aparece "OK", de 10 a 20 % "tendência", e acima de 20 % um alerta.
 
 ## Códigos de falha
 Os dois apps mostram, para cada código OBD (P0xxx/U0xxx), o **código Renault (DF)** e a descrição do quadro de falhas oficial da SIM32 D4 Vdiag 04 (manual 17B). São 50 códigos. Por exemplo, P0627 aparece como "DF008 – circuito de comando do relé da bomba de combustível".
