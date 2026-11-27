@@ -70,6 +70,13 @@ object Learner {
         p = ctx.getSharedPreferences("learn", 0)
         analogSaved.clear()
         p?.getString("analog", "")?.split(",")?.filter { it.isNotBlank() }?.let { analogSaved.addAll(it) }
+        // conferência feita olhando o Painel na partida a frio de 26/11/2026: água 20 °C, ar 21 °C (uma vez)
+        val pr = p
+        if (pr != null && !pr.getBoolean("cold_manual_v1", false)) {
+            if (coldList().none { it.endsWith("/manual") })
+                pr.edit().putString("cold", (coldList() + "20,0/21,0/manual").takeLast(10).joinToString(";")).apply()
+            pr.edit().putBoolean("cold_manual_v1", true).apply()
+        }
     }
 
     /** Ventoinha: o usuário não controla quando muda, então marca na hora (sem contagem). */
@@ -234,10 +241,14 @@ object Learner {
     private fun coldStart(b: Map<Int, ByteArray>, now: Long) {
         val pr = p ?: return
         val last = pr.getLong("last_seen", 0L)
-        if (last > 0 && now - last > 3 * 3_600_000L) {
-            val water = sig("agua", b); val air = sig("ar", b)
+        val water = sig("agua", b); val air = sig("ar", b)
+        // parado 3 h ou mais; ou, sem saber há quanto tempo (app reinstalado), água claramente fria (< 35 °C)
+        val longStop = last > 0 && now - last > 3 * 3_600_000L
+        val unknownCold = last == 0L && water != null && water < 35
+        if (longStop || unknownCold) {
             if (water != null && air != null) {
-                val l = (coldList() + "${f(water, 1)}/${f(air, 1)}/${(now - last) / 3_600_000}").takeLast(10)
+                val hours = if (longStop) "${(now - last) / 3_600_000}" else "?"
+                val l = (coldList() + "${f(water, 1)}/${f(air, 1)}/$hours").takeLast(10)
                 pr.edit().putString("cold", l.joinToString(";")).putLong("last_seen", now).apply()
                 return
             }
@@ -257,7 +268,12 @@ object Learner {
             val q = e.split("/"); if (q.size < 3) continue
             val w = q[0].replace(',', '.').toDouble(); val a = q[1].replace(',', '.').toDouble()
             diffs.add(w - a)
-            sb.append("• água ${f(w, 0)} °C, ar ${f(a, 0)} °C (parado ${q[2]} h)\n")
+            val how = when (q[2]) {
+                "manual" -> "conferido por você no Painel, 26/11"
+                "?" -> "motor frio"
+                else -> "parado ${q[2]} h"
+            }
+            sb.append("• água ${f(w, 0)} °C, ar ${f(a, 0)} °C ($how)\n")
         }
         val d = median(diffs) ?: 0.0
         sb.append(if (abs(d) <= 5) "✓ água e ar batem entre si. Confira se parece com a temperatura do dia."
