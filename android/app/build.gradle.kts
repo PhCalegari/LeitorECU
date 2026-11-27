@@ -11,8 +11,8 @@ android {
         applicationId = "br.leitorecu"
         minSdk = 23
         targetSdk = 34
-        versionCode = 19
-        versionName = "1.18"
+        versionCode = 20
+        versionName = "1.19"
     }
     buildTypes {
         release { isMinifyEnabled = false }

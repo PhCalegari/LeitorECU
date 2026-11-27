@@ -61,11 +61,11 @@ Os índices são do byte de dados, depois do `61 xx`. As referências vêm do ma
 | Tempo de injeção | `21A4` 13–14 | × 4 µs | ✅ ~4,0 ms em marcha lenta (manual: 3,5–4) |
 | Sonda lambda montante | `21A2` 11 | × 9,76 mV | ✅ oscila 0,1–0,9 V em malha fechada |
 | Pedal do acelerador (PR126) | `21A3` 15 | × 100/256 % | ✅ 14 % com o pé fora (manual: 14 %) |
-| Pedal pistas 1 e 2 (PR206/PR207) | `21A2` 20 e 21 | × 100/256 % | ✅ 14 % em repouso (manual: 14 %) |
+| Pedal pistas 1 e 2 (PR206/PR207) | `21A2` 20 e 21 | escala própria (× 100/256 não bate) | 🟡 14 % em repouso, mas com o pedal no fundo dão 75–77 % enquanto o PR126 dá 89,5 %; use o PR126 |
 | Bateria | `21A2` 15 | × 0,032 + 8 V | ✅ 13,7 V ligado, 12,6 V desligado |
 | Correção da riqueza (PR035) | `21A2` 16 | valor bruto, 128 = neutro | ✅ o manual mostra o valor bruto (100–130); fica em 128 no corte de combustível |
-| Temperatura da água | `21A2` 13 | × 0,625 − 40 °C | 🟡 a escala confere com o manual (sensor com defeito: −40 / 120 °C = byte 0 / 255). Falta confirmar o byte: a ventoinha liga a 99 °C |
-| Temperatura do ar | `21A2` 14 | × 0,625 − 40 °C | 🟡 ~46 °C (o sensor fica no coletor quente). Confirmar com o motor frio: tem que ser igual à da água |
+| Temperatura da água | `21A2` 13 | × 0,625 − 40 °C | ✅ partida a frio: 20 °C (igual ao ar e ao ambiente); escala confere com o manual (sensor com defeito: −40 / 120 °C = byte 0 / 255) |
+| Temperatura do ar | `21A2` 14 | × 0,625 − 40 °C | ✅ partida a frio: 21 °C, igual à água (manual: com o motor frio, ar = água); ~46 °C com o motor quente (o sensor fica no coletor) |
 | Borboleta medida (PR017) | `21A3` 18 | × 100/256 % | 🟡 12,1–12,9 % em marcha lenta (manual: 12 %); fica em 0 com o motor parado |
 | Injeção ativa (corte na desaceleração) | `21A2` 2, bit 7 | 1 = injetando, 0 = corte | 🟡 vai a 0 ao soltar o pedal acima de ~1.000 rpm |
 | Regulação de marcha lenta ativa | `21A2` 2, bit 6 | 1 = ativa | 🟡 1 em marcha lenta, 0 ao acelerar |
@@ -74,7 +74,7 @@ Os índices são do byte de dados, depois do `61 xx`. As referências vêm do ma
 | Marcha lenta desejada (PR041) | `21A2` 17–18 | valor direto (rpm) | ✅ 752: exatamente o valor do manual ("PR041 = 752 r.p.m.") |
 | Pedal solto aprendido (PR008) | `21A3` 16 | × 100/256 % | ✅ 14,1 % (manual: 14 %) |
 | Cópias da rotação | `21A3` 9–10 e `21A4` 10–11 | valor direto (rpm) | ✅ mesmo valor de `21A2` 7–8 |
-| Sonda lambda traseira (PR010) | `21A2` 12 | × 9,76 mV | 🟡 488 mV desligado e 462 mV em marcha lenta (manual: ~500 / 400 mV) |
+| Sonda lambda traseira (PR010) | `21A2` 12 | × 9,76 mV | 🟡 parada em 0,45–0,49 V ligado e desligado: parece entrada sem sonda (carro BR antes do OBDBr-2 costuma ter só a dianteira) |
 | Sinal de detonação (PR209) | `21A4` 16 | bruto | 🟡 0 com o motor desligado; sobe com a rotação |
 | Velocidade (PR018) | descoberta automática | — | 🔍 o app Android acha o byte sozinho comparando com o GPS (aba Pista) |
 
@@ -113,7 +113,7 @@ Visual de ferramenta de injeção: tudo reto, Painel em blocos pintados pela esc
 ## Velocidade, marchas e lambda (app Android)
 - **Velocidade da central**: `21A3` byte 11 × 1 (km/h), achada comparando com o GPS. Na aba Pista ela é o número grande (atualiza a cada ~0,3 s, sem o atraso do GPS); o GPS aparece embaixo para comparar. O velocímetro do carro marca a mais de fábrica: o botão **Igualar ao painel do carro** ajusta só a exibição (consumo e km usam a velocidade real).
 - **Marchas** pelas relações de fábrica do câmbio do Clio 1.0 16V Hi-Power: 1ª 4,09 · 2ª 2,24 · 3ª 1,39 · 4ª 1,03 · 5ª 0,79, diferencial 4,36 (conferidas com os dados do carro, erro até ~3 %). O app só ajusta sozinho a escala do pneu.
-- **Lambda (bloco da sonda)**: λ estimado pela média de 3 s da sonda de banda estreita (confiável só perto de 1,00, de ~0,94 a ~1,06), AFR para a gasolina brasileira (13,2:1 no ideal), LEDs de 0,90 a 1,10 (vermelho rica, verde ideal 0,97–1,03, azul pobre) e etiqueta IDEAL / RICA / POBRE / CORTE / MOTOR FRIO.
+- **Lambda (bloco da sonda)**: λ estimado pela média de 3 s da sonda de banda estreita (confiável só perto de 1,00, de ~0,94 a ~1,06), AFR para a gasolina C E30, com 30 % de etanol desde 01/08/2025 (12,9:1 no ideal), LEDs de 0,90 a 1,10 (vermelho rica, verde ideal 0,97–1,03, azul pobre) e etiqueta IDEAL / RICA / POBRE / CORTE / MOTOR FRIO.
 
 ## Conexão automática (app Android)
 Com a opção **Conectar automaticamente** marcada (padrão), o app conecta sozinho ao abrir, procurando o último adaptador usado. Se o carro estiver desligado, tenta de novo a cada ~10 s; se a conexão cair, fica tentando até o carro voltar. Toque em **Desconectar** para parar as tentativas. Na primeira vez é preciso tocar em **Conectar** para liberar a permissão de Bluetooth.

@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <float name="factor" value="1.0" />
+    <float name="tripKm" value="0.0" />
+    <float name="tripL" value="0.0" />
+    <boolean name="factor_v2" value="true" />
+    <boolean name="factor_v3" value="true" />
+</map>

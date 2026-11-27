@@ -44,7 +44,7 @@ class MapGrid(val key: String, val title: String, val unit: String, val dec: Int
         liveRpm = rpm?.takeIf { it >= 300 }; liveMap = map?.takeIf { it <= 1100 }
         if (rpm == null || map == null || v == null) return
         if (rpm < 500 || map > 1100) return
-        if (sig("st_inj", b) == 0.0) return                // corte de injeção: não representa o mapa
+        if (RenaultMap.fuelCut(b)) return                    // corte de injeção: não representa o mapa
         val r = idx(rpm, rpmEdges); val c = idx(map, mapEdges)
         if (r < 0 || c < 0) return
         curRow = r; curCol = c

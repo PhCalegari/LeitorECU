@@ -68,7 +68,8 @@ class MainActivity : Activity() {
      * AFR na gasolina brasileira, LEDs 0,90–1,10 e etiqueta RICA / IDEAL / POBRE / CORTE + média de 30 s.
      */
     private fun showMixInLambda(v: Double, b: Map<Int, ByteArray>) {
-        val cut = RenaultMap.SIGNALS.firstOrNull { it.key == "st_inj" }?.read(b) == 0.0
+        val cut = RenaultMap.fuelCut(b)                          // corte de verdade: injeção ~0 ms
+        val open = !cut && !RenaultMap.closedLoop(b)              // malha aberta: central não está usando a sonda
         val water = RenaultMap.SIGNALS.firstOrNull { it.key == "agua" }?.read(b)
         val cold = water != null && water < 65
         val avg = LambdaWatch.avgV() ?: v
@@ -90,6 +91,8 @@ class MainActivity : Activity() {
         val (word, col) = when {
             cut -> "CORTE" to Color.parseColor("#6B7380")             // pé fora: injeção cortada, não é "pobre"
             cold -> "MOTOR FRIO" to Color.parseColor("#6B7380")       // malha aberta: central enriquece de propósito
+            open && lam < 0.97 -> "ENRIQUECENDO" to Color.parseColor("#E53935")   // aceleração/transição: rica de propósito
+            open -> "MALHA ABERTA" to Color.parseColor("#6B7380")
             lam < 0.97 -> "RICA" to Color.parseColor("#E53935")
             lam > 1.03 -> "POBRE" to Color.parseColor("#2F6BFF")
             else -> "IDEAL" to Color.parseColor("#1E9E5A")
@@ -273,6 +276,7 @@ class MainActivity : Activity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        Seed.apply(this)   // instalação nova: carrega os dados já aprendidos no carro (embutidos no APK)
         applyThemeEarly()
         super.onCreate(savedInstanceState)
         applyTheme()
@@ -1141,7 +1145,12 @@ class MainActivity : Activity() {
         }
         latest = Modules.known.mapNotNull { m -> m.read(b)?.let { m.key to it } }.toMap() +
                 ("_t" to System.currentTimeMillis().toDouble())   // hora da última leitura da central
-        rate.text = "ciclo ${cycleMs} ms"; rate.visibility = View.VISIBLE
+        val ec = elm
+        rate.text = "ciclo ${cycleMs} ms" + (ec?.let { e ->
+            (if (e.msPerRead > 0) String.format(br, ", %.0f ms por leitura", e.msPerRead) else "") +
+                    when (e.oneResponse) { true -> ", modo rápido ✓"; false -> ", modo normal (o adaptador não aceita o rápido)"; else -> "" }
+        } ?: "")
+        rate.visibility = View.VISIBLE
         if (pages[1].visibility == View.VISIBLE) { if (graphMode == 0) drawGraph() else drawMap() }
         if (pages[4].visibility == View.VISIBLE) {
             val sb = StringBuilder()

@@ -445,7 +445,7 @@ object Health {
         val water = sig("agua", b)
         val bat = sig("bat", b)
         val inj = sig("inj", b)
-        val injOn = sig("st_inj", b) == 1.0
+        val injOn = sig("st_inj", b) == 1.0          // malha fechada (central regulando pela sonda)
         val idleReg = sig("st_lenta", b) == 1.0
         val corr = sig("corr", b)
 

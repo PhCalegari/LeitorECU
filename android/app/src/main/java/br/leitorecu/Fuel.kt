@@ -15,13 +15,18 @@ object Gps {
  * Consumo calculado pelo tempo de injeção da ECU:
  *   pulsos/min = rotação/2 × 4 injetores (injeção sequencial: 1 pulso por cilindro a cada 2 voltas)
  *   cc/min     = pulsos/min × vazão do injetor (cc/min) × (tempo de injeção − tempo morto) / 60000
- * Com o corte de injeção ativo (bit "injeção ativa" = 0), o consumo é 0.
- * A vazão real do injetor do D4D não é publicada: começa num valor típico e é corrigida
- * por um fator calibrado no abastecimento (litros reais ÷ litros calculados).
+ * Bico: Magneti Marelli IWP099 = Bosch 0280158168 (ref. Renault 8200025248/8200051963): 76,8 g/min de n-heptano a 3 bar
+ * ≈ 112 cc/min de heptano ≈ 108 cc/min de gasolina C (mais densa: vazão em volume cai com √densidade).
+ * Pressão: D4D sem retorno, 3,5 bar (±0,5) em relação à atmosfera; no bico a diferença é 3,5 + (P.atm − coletor),
+ * ~4,1 bar na lenta. Vazão ∝ √(pressão). Tempo morto de bico tipo EV14 a ~14 V: ~0,5 ms.
+ * Conferência: lenta 760 rpm, 4,0 ms, 350 mbar → ~0,67 L/h (típico real 0,6–0,8 L/h).
+ * Com o corte de injeção de verdade, o consumo é 0. O fator do abastecimento ajusta o que sobrar.
  */
 object Fuel {
-    private const val INJ_FLOW_CC_MIN = 110.0   // vazão típica de injetor de motor 1.0 16V (3 bar)
-    private const val DEAD_MS = 0.8             // tempo morto típico do injetor
+    private const val FLOW_3BAR_CC_MIN = 108.0  // gasolina a 3 bar (ver acima)
+    private const val RAIL_BAR = 3.5            // pressão da bomba/regulador (sem retorno)
+    private const val PATM_BAR = 0.95           // pressão atmosférica de referência (Curitiba ~0,91; nível do mar 1,01)
+    private const val DEAD_MS = 0.5             // tempo morto do bico
     private const val CYL = 4
 
     private var prefs: SharedPreferences? = null
@@ -37,6 +42,15 @@ object Fuel {
         factor = p.getFloat("factor", 1f).toDouble()
         tripL = p.getFloat("tripL", 0f).toDouble()
         tripKm = p.getFloat("tripKm", 0f).toDouble()
+        // conta nova com a vazão/pressão/tempo morto reais do bico (uma vez): o fator provisório de 1,15 volta a 1,0
+        // (a física nova já explica a diferença); quem calibrou no abastecimento mantém o seu fator.
+        // A viagem recomeça do zero com a conta nova.
+        if (!p.getBoolean("factor_v3", false)) {
+            if (kotlin.math.abs(factor - 1.15) < 0.001) factor = 1.0
+            tripL = 0.0; tripKm = 0.0
+            p.edit().putFloat("factor", factor.toFloat()).putFloat("tripL", 0f).putFloat("tripKm", 0f)
+                .putBoolean("factor_v2", true).putBoolean("factor_v3", true).apply()
+        }
     }
 
     private fun sig(key: String, b: Map<Int, ByteArray>) =
@@ -47,10 +61,14 @@ object Fuel {
         val rpm = sig("rpm", b) ?: return null
         val inj = sig("inj", b) ?: return null
         if (rpm < 100) return 0.0
-        if (sig("st_inj", b) == 0.0) return 0.0            // corte de injeção na desaceleração
+        if (RenaultMap.fuelCut(b)) return 0.0                // corte de injeção de verdade (injeção ~0 ms)
         val tEff = (inj - DEAD_MS).coerceAtLeast(0.0)
+        // pressão no bico: 3,5 bar da bomba + o vácuo do coletor (sistema sem retorno)
+        val mapBar = sig("map", b)?.takeIf { it in 150.0..1100.0 }?.div(1000.0) ?: PATM_BAR
+        val dp = RAIL_BAR + (PATM_BAR - mapBar)
+        val flow = FLOW_3BAR_CC_MIN * kotlin.math.sqrt(dp / 3.0)
         val pulsesMin = rpm / 2.0 * CYL
-        val ccMin = pulsesMin * INJ_FLOW_CC_MIN * tEff / 60000.0
+        val ccMin = pulsesMin * flow * tEff / 60000.0
         return ccMin * 60.0 / 1000.0 * factor
     }
 

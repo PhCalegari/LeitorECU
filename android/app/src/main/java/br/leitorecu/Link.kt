@@ -192,7 +192,9 @@ class DemoLink : Link() {
 
     override fun writeBytes(data: ByteArray) {
         Thread.sleep(60)
-        val c = String(data, Charsets.US_ASCII).trim().uppercase().replace(" ", "")
+        // aceita também o pedido com o número de respostas no fim ("21A2 1" -> "21A2")
+        val c = String(data, Charsets.US_ASCII).trim().uppercase().replace(Regex("^(21[0-9A-F]{2}) +1$"), "$1")
+            .replace(" ", "")
         onData(resp(c) + "\r\r>")
     }
 

@@ -35,7 +35,7 @@ object LambdaWatch {
         val v = sig("lambda", b) ?: return
         val rpm = sig("rpm", b) ?: return
         if (rpm < 500) { h.clear(); return }
-        if (sig("st_inj", b) == 0.0) return          // corte de injeção: leitura baixa é normal
+        if (RenaultMap.fuelCut(b)) return            // corte de injeção: leitura baixa é normal
         if (v > 1.2) return                          // sonda fria / sem sinal
         h.addLast(now to v)
         while (h.isNotEmpty() && now - h.first().first > 12_000) h.removeFirst()
@@ -60,8 +60,11 @@ object LambdaWatch {
         return y0 + (y1 - y0) * (v - x0) / (x1 - x0)
     }
 
-    /** AFR estequiométrico da gasolina brasileira (gasolina C, ~27 % de etanol). */
-    const val AFR_STOICH = 13.2
+    /**
+     * AFR estequiométrico da gasolina C E30 (30 % de etanol anidro desde 01/08/2025, Resolução CNPE):
+     * 30 % em volume ≈ 31,2 % em massa → 0,688 × 14,7 + 0,312 × 9,0 ≈ 12,9.
+     */
+    const val AFR_STOICH = 12.9
 
     /** 2 = oscilando OK, 1 = rica, 0 = pobre, -1 = parada, 3 = motor frio (malha aberta). */
     fun state(b: Map<Int, ByteArray>): Double? {
@@ -91,7 +94,7 @@ object LambdaWatch {
         val rpm = sig("rpm", b) ?: return
         val water = sig("agua", b)
         if (rpm < 500 || (water != null && water < 65)) { corr.clear(); return }
-        if (sig("st_inj", b) == 0.0 || c == 128.0) return   // corte de injeção / malha aberta (fica em 128)
+        if (!RenaultMap.closedLoop(b) || c == 128.0) return   // malha aberta: correção fica parada em 128
         corr.addLast(now to c)
         while (corr.isNotEmpty() && now - corr.first().first > 30_000) corr.removeFirst()
     }
@@ -147,10 +150,9 @@ object Modules {
         Module("mix_now", "Mistura agora", "sonda dianteira", 2, false, false,
             text = { v -> when { v < 0 -> "CORTE"; v > 0.45 -> "RICA"; else -> "POBRE" } }) { b ->
             val lam = RenaultMap.SIGNALS.firstOrNull { it.key == "lambda" }?.read(b)
-            val inj = RenaultMap.SIGNALS.firstOrNull { it.key == "st_inj" }?.read(b)
             when {
                 lam == null -> null
-                inj == 0.0 -> -1.0          // pé fora: a central cortou a injeção, a sonda cai sem a mistura estar "pobre"
+                RenaultMap.fuelCut(b) -> -1.0   // corte de injeção: a sonda cai sem a mistura estar "pobre"
                 else -> lam
             }
         },

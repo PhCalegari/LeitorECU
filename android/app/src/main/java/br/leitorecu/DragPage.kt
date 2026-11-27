@@ -207,9 +207,8 @@ class DragPage(
         col.addView(gearInfo)
         speedFindTv = tv("", 13f, Ui.AMBER).apply { gravity = Gravity.START; setPadding(dp(2), dp(2), dp(2), dp(6)) }
         col.addView(speedFindTv)
-        col.addView(row(btn("Procurar velocidade de novo") {
-            SpeedMap.clear(prefsCfg); finder.reset(); showSpeedFind()
-        }, btn("Igualar ao painel do carro") { askDash() }))
+        // velocidade e ajuste ao painel já estão certos: os botões de procurar/igualar saíram da tela
+        // (as funções continuam no código caso precise de novo)
 
         // 0–100
         col.addView(heading("Cronômetro 0–100"))
@@ -359,8 +358,8 @@ class DragPage(
         Gps.kmh = v; Gps.at = System.currentTimeMillis()      // usado pelo consumo (km/L)
         val ecu = ecuNow()
         val rpm = ecu["rpm"]
-        // pista 1 do pedal (21A2, lido a cada ciclo no modo rápido); mesma escala do PR126
-        val pedal = ecu["pedal1"] ?: ecu["pedal"]
+        // pedal principal (PR126, 21A3 – lido a cada ciclo junto com a velocidade); as pistas têm outra escala
+        val pedal = ecu["pedal"] ?: ecu["pedal1"]
 
         val now = SystemClock.elapsedRealtime()
         fixTimes.addLast(now)
@@ -392,8 +391,11 @@ class DragPage(
     }
 
     // ================= marcha =================
+    private var lastGear = 0
+    private var lastGearT = 0.0
+
     private fun updateGear(t: Double, v: Double, rpm: Double?) {
-        if (rpm == null || rpm < 900 || v < 8) { gearNow = 0; gearTv.text = if (v < 3) "N/P" else "–"; return }
+        if (rpm == null || rpm < 400 || v < 8) { gearNow = 0; gearTv.text = if (v < 3) "N/P" else "–"; return }
         val r = v / (rpm / 1000.0)                    // km/h por 1000 rpm
         ratioHist.addLast(t to r)
         while (ratioHist.isNotEmpty() && t - ratioHist.first().first > 2000) ratioHist.removeFirst()
@@ -401,9 +403,19 @@ class DragPage(
         val rs = ratioHist.map { it.second }
         val stable = ratioHist.size >= 2 && t - ratioHist.first().first >= 900 &&
                 (rs.max() - rs.min()) / rs.average() < 0.06
-        if (stable) gears.learn(rs.average())
-        gearNow = gears.match(r)
-        gearTv.text = if (gearNow > 0) "${gearNow}ª" else "?"
+        if (stable && rpm >= 900) gears.learn(rs.average())
+        val m = gears.match(r)
+        val c = gears.centers
+        when {
+            m > 0 -> { gearNow = m; lastGear = m; lastGearT = t; gearTv.text = "${m}ª" }
+            // rotação perto da lenta com o carro andando e sem bater com marcha nenhuma: embreagem ou ponto morto
+            rpm < 1150 -> { gearNow = 0; gearTv.text = "N" }
+            // oscilação rápida (troca de leitura, folga do câmbio): segura a última marcha por 1,5 s
+            lastGear > 0 && t - lastGearT < 1500 && abs(c[lastGear - 1] - r) / c[lastGear - 1] < 0.15 -> {
+                gearNow = lastGear; gearTv.text = "${lastGear}ª"
+            }
+            else -> { gearNow = 0; gearTv.text = "?" }
+        }
         showGearInfo(r)
     }
 
@@ -584,8 +596,9 @@ class Gears(private val prefs: android.content.SharedPreferences) {
     companion object {
         val RATIOS = doubleArrayOf(4.09, 2.24, 1.39, 1.03, 0.79)
         const val DIFF = 4.36
-        // pneu 175/65 R14 (≈1,83 m de volta): 60 × 1,83 ÷ 4,36 ≈ 25,2; na prática o carro mostrou ~24
-        const val K_DEFAULT = 24.5
+        // pneu 185/60 R14: diâmetro 14×25,4 + 2×111 = 577,6 mm; volta rodando (pneu achatado pelo peso) ≈ 1,79 m
+        // K = 60 × 1,79 ÷ 4,36 ≈ 24,6. Confere com o carro: 5ª a 3000 rpm = 93,5 km/h reais (painel do carro: 100).
+        const val K_DEFAULT = 24.6
     }
 
     var k = K_DEFAULT; private set
@@ -594,6 +607,11 @@ class Gears(private val prefs: android.content.SharedPreferences) {
     init {
         val saved = prefs.getFloat("gear_k", 0f).toDouble()
         k = if (saved > 0) saved else fromOldLearning() ?: K_DEFAULT
+        // o K aprendido antes da correção da velocidade (× 1 → × 1,053) ficou ~5 % baixo: volta ao valor do pneu
+        if (!prefs.getBoolean("gear_k_tire_v1", false)) {
+            if (abs(k - K_DEFAULT) / K_DEFAULT > 0.03) k = K_DEFAULT
+            prefs.edit().putFloat("gear_k", k.toFloat()).putBoolean("gear_k_tire_v1", true).apply()
+        }
     }
 
     /** Aproveita as marchas que a versão anterior aprendeu (centros com várias leituras) para estimar K. */

@@ -38,10 +38,18 @@ class Elm327(private val link: Link, private val log: (String) -> Unit) {
         return false
     }
 
-    /** Serviço Renault 21 (ReadDataByLocalIdentifier): devolve os bytes depois de "61 xx". */
-    fun renaultRead(lid: Int, quiet: Boolean = true): ByteArray? {
-        val target = "61%02X".format(lid)
-        for (l in hexLines(send("21%02X".format(lid), 3000, quiet))) {
+    /**
+     * "Só 1 resposta": o ELM327 aceita um dígito no fim do pedido ("21A2 1") dizendo quantas respostas esperar.
+     * Sem isso, depois de receber a resposta ele ainda espera o tempo-limite para ver se vem outra (nas capturas:
+     * ~246 ms por pedido, dos quais só ~60–80 ms são da central). null = ainda testando; false = o clone não aceita.
+     */
+    @Volatile var oneResponse: Boolean? = null; private set
+
+    /** Tempo médio por pedido à central (ms), medido. */
+    @Volatile var msPerRead = 0.0; private set
+
+    private fun parse61(lines: List<String>, target: String): ByteArray? {
+        for (l in hexLines(lines)) {
             val i = l.indexOf(target)
             if (i >= 0) {
                 val d = l.substring(i + 4)
@@ -49,6 +57,28 @@ class Elm327(private val link: Link, private val log: (String) -> Unit) {
             }
         }
         return null
+    }
+
+    /** Serviço Renault 21 (ReadDataByLocalIdentifier): devolve os bytes depois de "61 xx". */
+    fun renaultRead(lid: Int, quiet: Boolean = true): ByteArray? {
+        val target = "61%02X".format(lid)
+        val base = "21%02X".format(lid)
+        val t0 = System.currentTimeMillis()
+        var r: ByteArray? = null
+        if (oneResponse != false) {
+            r = parse61(send("$base 1", 3000, quiet), target)
+            if (r != null) oneResponse = true
+        }
+        if (r == null) {
+            r = parse61(send(base, 3000, quiet), target)
+            // só desiste do modo rápido se o pedido normal funcionou e o rápido não (clone não aceita)
+            if (r != null && oneResponse == null) oneResponse = false
+        }
+        if (r != null) {
+            val dt = (System.currentTimeMillis() - t0).toDouble()
+            msPerRead = if (msPerRead == 0.0) dt else msPerRead * 0.8 + dt * 0.2
+        }
+        return r
     }
 
     fun ident(): String? {
@@ -188,18 +218,36 @@ class Signal(
 object RenaultMap {
     val LIDS = listOf(0xA0, 0xA1, 0xA2, 0xA3, 0xA4)
 
+    /** Corte de injeção de verdade (desaceleração): tempo de injeção ~0 com o motor girando. */
+    fun fuelCut(b: Map<Int, ByteArray>): Boolean {
+        fun s(k: String) = SIGNALS.firstOrNull { it.key == k }?.read(b)
+        val rpm = s("rpm") ?: return false
+        if (rpm <= 900) return false
+        val inj = s("inj")
+        if (inj != null && inj < 0.3) return true
+        // se a central continuar informando um tempo de injeção no corte, a sonda denuncia: sem combustível ela
+        // cai para perto de 0 V (só ar) com o pé solto e a regulação desligada
+        val lam = s("lambda")
+        return lam != null && lam < 0.15 && s("st_pe") == 1.0 && s("st_inj") == 0.0
+    }
+
+    /** Central regulando a mistura pela sonda (malha fechada). */
+    fun closedLoop(b: Map<Int, ByteArray>) = SIGNALS.firstOrNull { it.key == "st_inj" }?.read(b) == 1.0
+
     val SIGNALS = listOf(
         Signal("rpm", "Rotação", "rpm", 0xA2, 7, 2, 0, false) { it.toDouble() },
         Signal("map", "Pressão coletor", "mbar", 0xA0, 12, 2, 0, false) {
             val m = it * 0.0578125 + 103; if (m > 1100) null else m
         },
-        Signal("agua", "Temp. motor", "°C", 0xA2, 13, 1, 0, true) { it * 0.625 - 40 },
-        Signal("ar", "Temp. ar", "°C", 0xA2, 14, 1, 0, true) { it * 0.625 - 40 },
+        // confirmado na partida a frio (26/11/2026): água 20 °C e ar 21 °C, iguais ao ambiente
+        Signal("agua", "Temp. motor", "°C", 0xA2, 13, 1, 0, false) { it * 0.625 - 40 },
+        Signal("ar", "Temp. ar", "°C", 0xA2, 14, 1, 0, false) { it * 0.625 - 40 },
         // PR126 – manual Renault: 14 % com o pé levantado (byte 36 × 100/256 = 14 %)
         Signal("pedal", "Pedal acelerador", "%", 0xA3, 15, 1, 0, false) { it * 100.0 / 256 },
         // PR206/PR207 – pistas 1 e 2 do pedal (14 % em repouso, como no manual)
-        Signal("pedal1", "Pedal pista 1", "%", 0xA2, 20, 1, 0, false) { it * 100.0 / 256 },
-        Signal("pedal2", "Pedal pista 2", "%", 0xA2, 21, 1, 0, false) { it * 100.0 / 256 },
+        // pistas do pedal: NÃO estão na escala do PR126 (pedal no fundo: PR126 89,5 % e pistas 75–77 %) e chegam atrasadas
+        Signal("pedal1", "Pedal pista 1", "% (escala própria)", 0xA2, 20, 1, 0, true) { it * 100.0 / 256 },
+        Signal("pedal2", "Pedal pista 2", "% (escala própria)", 0xA2, 21, 1, 0, true) { it * 100.0 / 256 },
         Signal("avanco", "Avanço ignição", "°", 0xA4, 15, 1, 1, false) { it * 0.375 - 23.625 },
         Signal("inj", "Tempo injeção", "ms", 0xA4, 13, 2, 2, false) { it * 0.004 },
         Signal("lambda", "Sonda lambda", "V", 0xA2, 11, 1, 2, false) { it * 0.00976 },
@@ -209,14 +257,19 @@ object RenaultMap {
         Signal("pedal_aprend", "Pedal solto (aprendido)", "%", 0xA3, 16, 1, 1, false) { it * 100.0 / 256 },
         // PR010 sonda lambda posterior (provável): vizinha da anterior; 488 mV desligado / 462 mV em lenta
         // (manual: ~500 mV / 400 mV). Sem sonda traseira instalada, mostra a tensão de repouso da entrada.
-        Signal("lambda2", "Sonda lambda traseira", "V", 0xA2, 12, 1, 2, true) { it * 0.00976 },
+        // fica parada em 0,45–0,49 V ligado e desligado: tensão de referência de entrada vazia. Carro BR antes do OBDBr-2
+        // normalmente só tem a sonda dianteira, então provavelmente não há sonda traseira instalada
+        Signal("lambda2", "Sonda traseira (prov. não instalada)", "V", 0xA2, 12, 1, 2, true) { it * 0.00976 },
         // PR209 sinal de detonação (provável, valor bruto): 0 com motor parado, 72–111 em lenta, sobe com a rotação
         Signal("knock", "Sinal de detonação", "bruto", 0xA4, 16, 1, 0, true) { it.toDouble() },
         // Borboleta (PR017?) – o manual dá 13 % com motor parado e este byte dá 0: pode ser o COMANDO da borboleta
         // motorizada, e não a posição medida. Em lenta bate (12 %). 12,1–12,9 % em marcha lenta (manual: 12 %). 0 com motor parado.
         Signal("borb", "Borboleta medida", "%", 0xA3, 18, 1, 1, true) { it * 100.0 / 256 },
         // Estados (bits) – deduzidos das capturas, coerentes amostra a amostra
-        Signal("st_inj", "Injeção ativa", "1 = sim / 0 = corte", 0xA2, 2, 1, 0, true) {
+        // 21A2 byte 2 bit 7: NÃO é "injeção ativa". Nas capturas, quando ele vai a 0 a injeção continua (2–3,5 ms) e a
+        // sonda segue rica; o que acontece junto é a correção da riqueza travar em 128 (neutra). Ou seja, é a
+        // regulação de riqueza (malha fechada pela sonda). O corte de injeção de verdade = tempo de injeção ~0 ms.
+        Signal("st_inj", "Malha fechada (sonda)", "1 = regulando / 0 = malha aberta", 0xA2, 2, 1, 0, true) {
             if (it and 0x80 != 0) 1.0 else 0.0
         },
         Signal("st_lenta", "Regulação marcha lenta", "1 = ativa", 0xA2, 2, 1, 0, true) {

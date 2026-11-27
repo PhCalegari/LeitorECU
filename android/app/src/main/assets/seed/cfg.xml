@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="dash_v1">rpm:big=1,vel_ecu:big=0,map:big=0,agua:big=0,ar:big=0,pedal:big=0,avanco:big=0,inj:big=0,lambda:big=0,rpm_alvo:big=0,borb:big=0,corr:big=0,bat:big=0,cons_lh:big=0,cons_kml:big=0,avg5_kml:big=0,trip_kml:big=0,mistura:big=0,lambda_st:big=0</string>
+    <boolean name="vel_moved" value="true" />
+    <boolean name="mix_now_added" value="true" />
+    <float name="dash_factor" value="1.0609818" />
+    <string name="g1">rpm</string>
+    <string name="speed_map">163:11:1:1.0526355714010636:0.0</string>
+    <string name="g2">lambda</string>
+    <string name="addr">81:23:45:67:89:BA</string>
+    <boolean name="mix_now_removed" value="true" />
+</map>

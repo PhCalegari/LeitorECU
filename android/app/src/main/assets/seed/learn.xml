@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="cand_Ar-condicionado">A2:1:b7=1,A3:1:b7=1,A4:0:b5=1,A4:2:b2=1,A2:1:B=1,A3:1:B=1,A4:0:B=1,A4:2:B=1</string>
+    <string name="analog">A4:16,A2:13,A2:11,A4:12,A4:13,A2:16,A4:14,A2:15,A0:12,A4:15,A0:13,A2:14,A4:10,A4:11,A3:9,A2:7,A2:8,A2:19,A3:15,A3:17,A3:18,A2:21,A3:11,A3:12,A3:13,A3:14,A3:10,A2:20</string>
+    <int name="ev_Ar-condicionado" value="4" />
+</map>

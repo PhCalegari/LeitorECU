@@ -41,10 +41,14 @@ object SpeedMap {
      * atraso do GPS nas acelerações (ex.: × 1,044 − 3,1). Se ficou perto de "× 1", usa "× 1" exato.
      */
     fun snap(): Boolean {
-        if (len == 1 && kotlin.math.abs(scale - 1.0) < 0.08 && kotlin.math.abs(offset) < 6 && (scale != 1.0 || offset != 0.0)) {
-            scale = 1.0; offset = 0.0; return true
-        }
-        return false
+        // velocidade é proporcional ao giro da roda (parado = 0). A busca pelo GPS sai "a·x + b" por causa do atraso
+        // do GPS; o "b" distorce muito em baixa velocidade (e a marcha vira "?"). Troca pela reta proporcional que
+        // melhor representa a faixa de uso (byte 18 a 100): escala = a + b·Σx/Σx².
+        if (len != 1 || offset == 0.0) return false
+        val xs = (18..100).map { it.toDouble() }
+        scale += offset * xs.sum() / xs.sumOf { it * it }
+        offset = 0.0
+        return true
     }
 
     fun saveDash(p: SharedPreferences, f: Double) { dashFactor = f; p.edit().putFloat("dash_factor", f.toFloat()).apply() }
